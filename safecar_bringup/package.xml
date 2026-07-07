@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>safecar_bringup</name>
+  <version>0.0.1</version>
+  <description>SafeCar 전체 노드(인지부/제어부/통신부) + STELLA N1 기본 구동부를 한번에 launch</description>
+  <maintainer email="todo@todo.todo">TODO</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>safecar_perception</exec_depend>
+  <exec_depend>safecar_control</exec_depend>
+  <exec_depend>safecar_comms</exec_depend>
+  <!-- camera_ros는 rosdep에 없을 수 있음: https://github.com/christianrauch/camera_ros 를 src/에 별도로 clone/빌드 -->
+  <exec_depend>camera_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
