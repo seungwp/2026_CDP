@@ -28,6 +28,65 @@ cdp_ws/
 └── safecar_bringup/           # 통합 launch (stella_bringup + camera_ros + safecar 노드)
 ```
 
+## 시스템 블록도 (전체 작동 과정)
+
+```mermaid
+flowchart TD
+    subgraph HW["센서 / 하드웨어"]
+        CAM["카메라 모듈 3 (imx708, CSI)"]
+        BIOHW["생체신호 센서 (ESP32/STM32, 연동 예정)"]
+        LIDAR["YDLIDAR X4"]
+        IMU["IMU/AHRS"]
+        JOY["블루투스 조이스틱"]
+    end
+
+    subgraph PERCEPTION["인지"]
+        CAMNODE["camera_node (camera_ros)<br/>640x480 고정"]
+        HAILO["hailo_ros2_detection_node<br/>Hailo-8 NPU 객체 인식"]
+    end
+
+    subgraph COMMS["통신"]
+        BRIDGE["sensor_bridge_node<br/>(현재: 10초 후 이상 발생 시뮬레이션)"]
+    end
+
+    subgraph CONTROL["판단/제어"]
+        DM["decision_maker_node<br/>주행 상태 판단 (10Hz)"]
+    end
+
+    subgraph BASE["차체 (STELLA N1)"]
+        MD["stella_md_node<br/>모터드라이버"]
+        MOTOR["좌/우 구동 모터"]
+    end
+
+    CAM --> CAMNODE
+    CAMNODE -- "/camera/image_raw" --> HAILO
+    HAILO -- "/detection_image<br/>(바운딩박스 영상)" --> VIEW["rqt_image_view /<br/>대시보드(예정)"]
+    HAILO -- "/perception/obstacle_detected (Bool)" --> DM
+    BIOHW -. "시리얼 (TODO)" .-> BRIDGE
+    BRIDGE -- "/sensors/bio_anomaly (Bool)" --> DM
+    DM -- "/control/driving_state" --> VIEW
+    DM -- "/cmd_vel (비상 개입 시에만)" --> MD
+    JOY -- "/cmd_vel (평상시 주행)" --> MD
+    LIDAR -. "/scan (갓길 공간 판단용, 예정)" .-> DM
+    IMU -- "/imu/yaw" --> MD
+    MD -- "/odom" --> VIEW
+    MD --> MOTOR
+```
+
+> ⚠️ **알려진 설계 이슈**: 조이스틱(평상시)과 decision_maker(비상 개입)가 같은 `/cmd_vel`에
+> publish하므로 비상 시 두 명령이 경쟁한다. 안전 게이트(teleop → `/cmd_vel_raw` →
+> decision_maker 중재 → `/cmd_vel`) 도입 예정.
+
+### 판단 로직 (decision_maker)
+
+```mermaid
+flowchart LR
+    A{"운전자 이상?<br/>(bio_anomaly)"} -- 아니오 --> N["NORMAL<br/>개입 없음 (조이스틱 주행)"]
+    A -- 예 --> B{"전방 장애물?<br/>(obstacle_detected)"}
+    B -- 예 --> E["EMERGENCY_BRAKE<br/>현 차선 급제동"]
+    B -- 아니오 --> M["MRM_PULL_OVER<br/>갓길 대피 (현재는 정지만)"]
+```
+
 ## 제거한 것 (원본 STELLA_N5_ROS2 대비)
 
 실제 하드웨어(YDLIDAR X4 단일 라이다, RealSense 없음, USB캠 아닌 CSI 카메라)에 맞지 않는 것들을 정리했다.
