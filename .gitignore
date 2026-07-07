@@ -6,3 +6,6 @@ log/
 # Python
 __pycache__/
 *.pyc
+
+# Hailo 런타임이 자동 생성하는 로그
+hailort.log
