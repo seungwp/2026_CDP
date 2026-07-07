@@ -22,12 +22,14 @@ def generate_launch_description():
         # 별도 설치 필요: https://github.com/christianrauch/camera_ros
         # 640x480 고정: hailo_ros2_detection_node의 GStreamer 파이프라인이 640x480을
         # 가정하므로, 기본값(800x600)으로 두면 추론 입력 영상이 깨진다(4분할 증상).
+        # orientation 180: 카메라 모듈이 차체에 거꾸로 장착되어 있어 센서 수준에서 뒤집음
+        # (libcamera 처리라 CPU 비용 없음). 장착 방향이 바뀌면 이 값만 수정.
         Node(
             package='camera_ros',
             executable='camera_node',
             name='camera',
             output='screen',
-            parameters=[{'width': 640, 'height': 480}],
+            parameters=[{'width': 640, 'height': 480, 'orientation': 180}],
         ),
 
         # Hailo-8 NPU 객체 인식. '/detection_image'(디버그용 박스 영상)와
