@@ -12,6 +12,7 @@ import queue
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
 from cv_bridge import CvBridge
 
 # Override to use parse_known_args() instead of parse_args()
@@ -41,6 +42,12 @@ from hailo_apps_infra.gstreamer_app import disable_qos
 from stella_hailo_rpi5_ros2_examples.color_config import get_bbox_color
 
 processed_frame_queue = queue.Queue(maxsize=10)
+
+# SafeCar: 전방 장애물로 취급할 COCO 라벨과 최소 신뢰도.
+# app_callback(GStreamer 스레드)이 갱신하고 ROS 타이머가 읽는 공유 상태.
+OBSTACLE_LABELS = {"person", "car", "truck", "bus", "bicycle", "motorcycle"}
+OBSTACLE_CONFIDENCE_THRESHOLD = 0.5
+obstacle_state = {"detected": False}
 
 # ------------------------------------------------------------------
 # User-defined class to be used in the callback function
@@ -81,11 +88,15 @@ def app_callback(pad, info, user_data):
 
     # Parse the detections
     detection_count = 0
+    obstacle_found = False
     for detection in detections:
         label = detection.get_label()
         bbox = detection.get_bbox()
         confidence = detection.get_confidence()
         color = get_bbox_color(label)
+
+        if label in OBSTACLE_LABELS and confidence >= OBSTACLE_CONFIDENCE_THRESHOLD:
+            obstacle_found = True
         # cv2 frame for ROS2
         try:
             x1 = round(bbox.xmin() * width)
@@ -116,6 +127,8 @@ def app_callback(pad, info, user_data):
         # Let's print the new_variable and the result of the new_function to the frame
         cv2.putText(frame, f"{user_data.new_function()} {user_data.new_variable}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         # Convert the frame to BGR
+
+    obstacle_state["detected"] = obstacle_found
 
     if frame is not None:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -211,6 +224,9 @@ class HailoDetectionNode(Node):
             10
         )
         self.publisher_ = self.create_publisher(Image, "detection_image", 10)
+        # SafeCar: NPU 감지 결과를 장애물 유무 신호로 변환해 제어부(decision_maker)에 전달
+        self.obstacle_pub = self.create_publisher(Bool, "/perception/obstacle_detected", 10)
+        self.create_timer(0.1, self.publish_obstacle_state)  # 10Hz, decision_maker 판단 주기와 동일
         self.bridge = CvBridge()
         self.get_logger().info("Detection node started.")
 
@@ -279,6 +295,11 @@ class HailoDetectionNode(Node):
         else:
             self.get_logger().debug(f"Failed to push buffer: {ret}")
         
+    def publish_obstacle_state(self):
+        msg = Bool()
+        msg.data = obstacle_state["detected"]
+        self.obstacle_pub.publish(msg)
+
     def publish_processed_frame(self):
         try:
             frame = processed_frame_queue.get_nowait()

@@ -20,25 +20,34 @@ def generate_launch_description():
 
         # 라즈베리파이 카메라 모듈(CSI/libcamera) 드라이버. '/camera/image_raw' publish.
         # 별도 설치 필요: https://github.com/christianrauch/camera_ros
+        # 640x480 고정: hailo_ros2_detection_node의 GStreamer 파이프라인이 640x480을
+        # 가정하므로, 기본값(800x600)으로 두면 추론 입력 영상이 깨진다(4분할 증상).
         Node(
             package='camera_ros',
             executable='camera_node',
             name='camera',
             output='screen',
+            parameters=[{'width': 640, 'height': 480}],
         ),
 
-        # TODO: Hailo-8 객체 인식을 붙이려면 stella_hailo_rpi5_ros2_examples의
-        # hailo_ros2_detection_node를 여기에 추가하고 image_raw는 위 camera_ros가
-        # publish하는 '/camera/image_raw'를 그대로 구독하면 된다 (기본 토픽명이 같아 remap 불필요).
-        # 단, hailo-rpi5-examples 저장소 + install_ros2.sh 설치가 선행되어야 한다.
-
-        # SafeCar 안전 감독 레이어: 인지부 + 제어부 + 통신부(센서 브릿지)
+        # Hailo-8 NPU 객체 인식. '/detection_image'(디버그용 박스 영상)와
+        # '/perception/obstacle_detected'(장애물 유무, 제어부 입력) publish.
+        # 선행 조건: hailo-rpi5-examples + install_ros2.sh 설치 (Pi에 설치 완료됨).
+        # remap 필요: 노드는 상대 토픽 'image_raw'를 구독하므로 camera_ros의
+        # '/camera/image_raw'로 연결해줘야 한다.
         Node(
-            package='safecar_perception',
-            executable='vision_detector_node',
-            name='vision_detector_node',
+            package='stella_hailo_rpi5_ros2_examples',
+            executable='hailo_ros2_detection_node',
+            name='hailo_ros2_detection_node',
             output='screen',
+            remappings=[('image_raw', '/camera/image_raw')],
         ),
+
+        # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지)
+        # NOTE: safecar_perception의 vision_detector_node는 잠정 제외 —
+        # 장애물 감지는 위 Hailo 노드가 실추론으로 담당하게 되어, 남은 역할이던
+        # 시간 기반 임시 장애물 신호가 오히려 실신호와 충돌한다. 차선 인식 결과를
+        # publish하게 되면(인지부 작업) 그때 다시 추가할 것.
         Node(
             package='safecar_control',
             executable='decision_maker_node',

@@ -58,8 +58,9 @@ ros2 launch safecar_bringup safecar.launch.py
 
 | 토픽 | 타입 | Publisher | Subscriber |
 |---|---|---|---|
-| `/camera/image_raw` | sensor_msgs/Image | camera_ros | safecar_perception (+ Hailo 노드 추가 시) |
-| `/perception/obstacle_detected` | std_msgs/Bool | safecar_perception | safecar_control |
+| `/camera/image_raw` | sensor_msgs/Image | camera_ros (640x480) | stella_hailo_rpi5_ros2_examples |
+| `/perception/obstacle_detected` | std_msgs/Bool | stella_hailo_rpi5_ros2_examples (Hailo-8 실추론) | safecar_control |
+| `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
 | `/sensors/bio_anomaly` | std_msgs/Bool | safecar_comms | safecar_control |
 | `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
 | `/cmd_vel` | geometry_msgs/Twist | safecar_control (개입 시에만) | stella_md |
