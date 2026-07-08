@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'decision_maker_node = safecar_control.decision_maker_node:main',
+            'lane_follower_node = safecar_control.lane_follower_node:main',
         ],
     },
 )

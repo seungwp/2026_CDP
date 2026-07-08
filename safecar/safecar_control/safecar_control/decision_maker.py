@@ -12,12 +12,13 @@ class DecisionMaker:
         print("[System] Decision Maker 초기화 완료.")
 
     def decide(self, bio_anomaly, obstacle_detected):
-        # 1. 운전자 상태 정상
-        if not bio_anomaly:
-            return COMMAND_NORMAL
-
-        # 2. 운전자 이상 발생 시: 전방 상황에 따른 페일세이프(MRM) 이중 개입
+        # 1. 전방 장애물: 운전자 상태와 무관하게 최우선 정지 (자율주행 중 AEB)
         if obstacle_detected:
-            return COMMAND_EMERGENCY_BRAKE  # 현 차선 급제동 (장애물 있음)
-        else:
-            return COMMAND_MRM_PULL_OVER    # 우측 갓길 대피 (공간 확보됨)
+            return COMMAND_EMERGENCY_BRAKE
+
+        # 2. 운전자 이상 (전방은 비어 있음): 우측 갓길 대피
+        if bio_anomaly:
+            return COMMAND_MRM_PULL_OVER
+
+        # 3. 정상 주행
+        return COMMAND_NORMAL

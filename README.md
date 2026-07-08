@@ -43,6 +43,7 @@ flowchart TD
     subgraph PERCEPTION["인지"]
         CAMNODE["camera_node (camera_ros)<br/>640x480 고정"]
         HAILO["hailo_ros2_detection_node<br/>Hailo-8 NPU 객체 인식"]
+        VD["vision_detector_node<br/>OpenCV 차선 인식<br/>(lane_follow 모드)"]
     end
 
     subgraph COMMS["통신"]
@@ -50,7 +51,8 @@ flowchart TD
     end
 
     subgraph CONTROL["판단/제어"]
-        DM["decision_maker_node<br/>주행 상태 판단 (10Hz)"]
+        DM["decision_maker_node<br/>주행 상태 판단 + cmd_vel 게이트 (10Hz)"]
+        LF["lane_follower_node<br/>차선 추종 주행<br/>(lane_follow 모드)"]
     end
 
     subgraph BASE["차체 (STELLA N1)"]
@@ -65,7 +67,11 @@ flowchart TD
     BIOHW -. "시리얼 (TODO)" .-> BRIDGE
     BRIDGE -- "/sensors/bio_anomaly (Bool)" --> DM
     DM -- "/control/driving_state" --> VIEW
-    JOY -- "/cmd_vel_raw (주행 명령)" --> DM
+    CAMNODE -- "/camera/image_raw" --> VD
+    VD -- "/perception/lane_offset (-1~+1)" --> LF
+    VD -- "/perception/lane_image<br/>(차선 디버그 영상)" --> VIEW
+    LF -- "/cmd_vel_raw (자율 주행)" --> DM
+    JOY -- "/cmd_vel_raw (수동 주행)" --> DM
     DM -- "/cmd_vel (단일 게이트, 10Hz)" --> MD
     LIDAR -. "/scan (갓길 공간 판단용, 예정)" .-> DM
     IMU -- "/imu/yaw" --> MD
@@ -83,10 +89,10 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A{"운전자 이상?<br/>(bio_anomaly)"} -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
-    A -- 예 --> B{"전방 장애물?<br/>(obstacle_detected)"}
-    B -- 예 --> E["EMERGENCY_BRAKE<br/>현 차선 급제동"]
-    B -- 아니오 --> M["MRM_PULL_OVER<br/>갓길 대피 (현재는 정지만)"]
+    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> E["EMERGENCY_BRAKE<br/>최우선 급제동 (AEB)"]
+    A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly)"}
+    B -- 예 --> M["MRM_PULL_OVER<br/>갓길 대피 (현재는 정지만)"]
+    B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
 ```
 
 ## 제거한 것 (원본 STELLA_N5_ROS2 대비)
@@ -112,8 +118,20 @@ flowchart LR
 ```bash
 colcon build
 source install/setup.bash
+
+# 기본(수동/teleop 주행, 10초 뒤 운전자 이상 시뮬레이션 발동)
 ros2 launch safecar_bringup safecar.launch.py
+
+# 차선 추종 자율주행 (시뮬레이션 끔 — 트랙 테스트용)
+ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
 ```
+
+launch 인자:
+
+| 인자 | 기본값 | 설명 |
+|---|---|---|
+| `lane_follow` | `false` | true면 차선 인식+추종 노드 실행(자율주행). teleop과 동시 사용 금지 |
+| `anomaly_delay_sec` | `10.0` | N초 후 운전자 이상 시뮬레이션. 0 이하 = 비활성 |
 
 ## 토픽 계약
 
@@ -124,7 +142,9 @@ ros2 launch safecar_bringup safecar.launch.py
 | `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
 | `/sensors/bio_anomaly` | std_msgs/Bool | safecar_comms | safecar_control |
 | `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
-| `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) / 추후 차선 추종 노드 | safecar_control |
+| `/perception/lane_offset` | std_msgs/Float32 | safecar_perception (차선 찾은 프레임만, -1~+1) | safecar_control (lane_follower) |
+| `/perception/lane_image` | sensor_msgs/Image | safecar_perception | (디버그/튜닝용, 차선 검출 시각화) |
+| `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar_control |
 | `/cmd_vel` | geometry_msgs/Twist | safecar_control (단일 게이트, 10Hz) | stella_md |
 | `/imu/yaw` | std_msgs/Float64 | stella_ahrs | stella_md |
 | `/scan` | sensor_msgs/LaserScan | ydlidar_ros | (필요 시 safecar_control, 갓길 공간 확보 판단용) |

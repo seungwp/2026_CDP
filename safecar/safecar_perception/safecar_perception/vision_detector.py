@@ -1,79 +1,86 @@
 import cv2
 import numpy as np
-import time
-import os
-
-# HailoRT 라이브러리 (라즈베리파이 실차 환경에서만 동작)
-try:
-    from hailo_platform import VDevice, HailoStreamInterface, InferVStream, ConfigureParams
-    HAILO_AVAILABLE = True
-except ImportError:
-    print("[Warning] HailoRT 라이브러리가 없습니다. NPU 추론은 건너뜁니다.")
-    HAILO_AVAILABLE = False
 
 
 class VisionDetector:
-    """카메라 프레임을 받아 차선(OpenCV)과 전방 장애물(Hailo-8 NPU)을 인식한다. (인지부, ROS 비의존 순수 로직)"""
+    """카메라 프레임에서 차선을 인식해 차로 중심 대비 횡방향 오프셋을 계산한다. (인지부, ROS 비의존 순수 로직)
 
-    def __init__(self, hef_path):
-        self.hef_path = hef_path
-        self.npu_ready = False
+    장애물 인식은 이 클래스가 아니라 Hailo NPU 노드(stella_hailo_rpi5_ros2_examples)가 담당한다.
 
-        if HAILO_AVAILABLE and os.path.exists(self.hef_path):
-            self._init_hailo()
-        else:
-            print("[System] Vision: NPU를 사용할 수 없어 OpenCV 차선 인식만 수행합니다.")
+    오프셋 규약: -1.0 ~ +1.0 정규화 값.
+    + 는 차로 중심이 화면 중앙보다 오른쪽에 있음(차가 왼쪽으로 치우침 → 우조향 필요),
+    - 는 그 반대. 차선을 하나도 못 찾으면 None.
+    """
 
-    def _init_hailo(self):
-        """Hailo-8 디바이스 및 모델 초기화"""
-        try:
-            self.target = VDevice()
-            self.hef = HEF(self.hef_path)
-            configure_params = ConfigureParams.create_from_hef(self.hef, interface=HailoStreamInterface.PCIe)
-            self.network_group = self.target.configure(self.hef, configure_params)[0]
-            self.network_group_params = self.network_group.create_params()
-            print("[System] Hailo-8 NPU 모델 로드 완료.")
-            self.npu_ready = True
-        except Exception as e:
-            print(f"[Hailo Error] NPU 초기화 실패: {e}")
+    # 튜닝 파라미터 — 테스트 트랙(테이프 색·조명·카메라 각도)에 맞춰 조정할 것
+    ROI_TOP = 0.55        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
+    Y_EVAL = 0.9          # 오프셋을 계산하는 기준 행(높이 비율, 차체 바로 앞 지점)
+    MIN_ABS_SLOPE = 0.3   # 이보다 완만한(수평에 가까운) 선분은 차선으로 안 봄 (정지선/그림자 배제)
+    HALF_LANE_PX = 200    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, 640 폭 기준)
+
+    def __init__(self):
+        print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
 
     def process_frame(self, frame):
-        result_frame = frame.copy()
-        obstacle_detected = False
+        """(디버그 프레임, 차로 중심 오프셋 float 또는 None)을 반환한다."""
+        height, width = frame.shape[:2]
 
-        # --- 1. 차선 및 갓길 검출 (OpenCV) ---
+        # 1. 흰색/노란색 차선 마스크
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
         mask_yellow = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([30, 255, 255]))
         mask = cv2.bitwise_or(mask_white, mask_yellow)
 
+        # 2. 하단 ROI에서만 엣지/직선 검출
         edges = cv2.Canny(mask, 50, 150)
-        height, width = edges.shape
+        roi_top = int(height * self.ROI_TOP)
         roi = np.zeros_like(edges)
-        polygon = np.array([[(0, height), (width, height), (width, height//2), (0, height//2)]], np.int32)
-        cv2.fillPoly(roi, polygon, 255)
+        cv2.rectangle(roi, (0, roi_top), (width, height), 255, -1)
         masked_edges = cv2.bitwise_and(edges, roi)
 
-        lines = cv2.HoughLinesP(masked_edges, 1, np.pi/180, 50, minLineLength=50, maxLineGap=150)
-        line_image = np.zeros_like(frame)
+        lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50,
+                                minLineLength=40, maxLineGap=120)
+
+        debug = frame.copy()
+        cv2.line(debug, (width // 2, roi_top), (width // 2, height), (255, 0, 0), 1)
+
+        # 3. 각 선분을 기준 행(y_eval)까지 연장한 x좌표로 좌/우 차선 분류
+        y_eval = int(height * self.Y_EVAL)
+        left_xs, right_xs = [], []
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                dx, dy = x2 - x1, y2 - y1
+                if dx == 0:
+                    x_at = float(x1)  # 수직선
+                else:
+                    slope = dy / dx
+                    if abs(slope) < self.MIN_ABS_SLOPE:
+                        continue
+                    x_at = x1 + (y_eval - y1) / slope
+                if not (0 <= x_at < width):
+                    continue
+                cv2.line(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                if x_at < width / 2:
+                    left_xs.append(x_at)
+                else:
+                    right_xs.append(x_at)
 
-        result_frame = cv2.addWeighted(result_frame, 0.8, line_image, 1.0, 0)
-
-        # --- 2. 전방 장애물 검출 (Hailo-8) ---
-        if self.npu_ready:
-            # TODO: 선택한 HEF 모델의 입력 사이즈에 맞게 프레임 리사이즈 후 추론
-            # 예: input_data = cv2.resize(frame, (640, 640))
-            # 텐서 출력값을 파싱하여 obstacle_detected = True/False 로 변환하는 후처리 로직 필요
-            pass
+        # 4. 차로 중심 추정 (한쪽만 보이면 반폭 가정으로 보정)
+        if left_xs and right_xs:
+            center = (np.median(left_xs) + np.median(right_xs)) / 2.0
+        elif left_xs:
+            center = np.median(left_xs) + self.HALF_LANE_PX
+        elif right_xs:
+            center = np.median(right_xs) - self.HALF_LANE_PX
         else:
-            # 테스트용 임시 로직
-            obstacle_detected = int(time.time()) % 10 < 3
+            cv2.putText(debug, "NO LANE", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            return debug, None
 
-        if obstacle_detected:
-            cv2.putText(result_frame, "OBSTACLE DETECTED", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+        offset = float(np.clip((center - width / 2) / (width / 2), -1.0, 1.0))
 
-        return result_frame, obstacle_detected
+        cv2.circle(debug, (int(center), y_eval), 6, (0, 0, 255), -1)
+        cv2.putText(debug, f"offset={offset:+.2f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        return debug, offset

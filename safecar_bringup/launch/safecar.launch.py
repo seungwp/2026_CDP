@@ -3,6 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -21,6 +22,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'anomaly_delay_sec', default_value='10.0',
             description='N초 후 bio_anomaly=True 시뮬레이션. 0 이하면 비활성(항상 정상).'),
+
+        # 차선 추종 자율주행 모드. true면 차선 인식 + 차선 추종 노드가 떠서
+        # /cmd_vel_raw를 스스로 만든다(teleop 불필요). teleop과 동시에 켜지 말 것 —
+        # 둘 다 /cmd_vel_raw에 publish해서 명령이 섞인다.
+        #   ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
+        DeclareLaunchArgument(
+            'lane_follow', default_value='false',
+            description='true면 차선 인식(vision_detector) + 차선 추종(lane_follower) 실행'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(stella_bringup_launch),
@@ -53,11 +62,25 @@ def generate_launch_description():
             remappings=[('image_raw', '/camera/image_raw')],
         ),
 
+        # 차선 인식(인지부) + 차선 추종 주행(제어부) — lane_follow:=true일 때만.
+        # vision_detector는 이제 차선 오프셋만 publish하고(가짜 장애물 신호 제거됨),
+        # 장애물 감지는 위 Hailo 노드가 전담한다.
+        Node(
+            package='safecar_perception',
+            executable='vision_detector_node',
+            name='vision_detector_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('lane_follow')),
+        ),
+        Node(
+            package='safecar_control',
+            executable='lane_follower_node',
+            name='lane_follower_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('lane_follow')),
+        ),
+
         # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지)
-        # NOTE: safecar_perception의 vision_detector_node는 잠정 제외 —
-        # 장애물 감지는 위 Hailo 노드가 실추론으로 담당하게 되어, 남은 역할이던
-        # 시간 기반 임시 장애물 신호가 오히려 실신호와 충돌한다. 차선 인식 결과를
-        # publish하게 되면(인지부 작업) 그때 다시 추가할 것.
         Node(
             package='safecar_control',
             executable='decision_maker_node',
