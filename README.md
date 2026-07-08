@@ -65,23 +65,25 @@ flowchart TD
     BIOHW -. "시리얼 (TODO)" .-> BRIDGE
     BRIDGE -- "/sensors/bio_anomaly (Bool)" --> DM
     DM -- "/control/driving_state" --> VIEW
-    DM -- "/cmd_vel (비상 개입 시에만)" --> MD
-    JOY -- "/cmd_vel (평상시 주행)" --> MD
+    JOY -- "/cmd_vel_raw (주행 명령)" --> DM
+    DM -- "/cmd_vel (단일 게이트, 10Hz)" --> MD
     LIDAR -. "/scan (갓길 공간 판단용, 예정)" .-> DM
     IMU -- "/imu/yaw" --> MD
     MD -- "/odom" --> VIEW
     MD --> MOTOR
 ```
 
-> ⚠️ **알려진 설계 이슈**: 조이스틱(평상시)과 decision_maker(비상 개입)가 같은 `/cmd_vel`에
-> publish하므로 비상 시 두 명령이 경쟁한다. 안전 게이트(teleop → `/cmd_vel_raw` →
-> decision_maker 중재 → `/cmd_vel`) 도입 예정.
+> **안전 게이트**: `/cmd_vel`은 decision_maker만 publish한다. 주행 명령(teleop, 추후
+> 차선 추종 노드)은 `/cmd_vel_raw`로 보내야 하며, NORMAL일 때만 통과되고 비상 시 차단된다.
+> `/cmd_vel_raw`가 `cmd_vel_timeout`(기본 1초) 이상 끊기면 정지 명령을 발행한다
+> (stella_md에 자체 타임아웃이 없어 통신 단절 시 마지막 속도로 계속 달리는 문제 방지).
+> teleop 실행 시 remap 필수 — cdp-remotepc README의 `/cmd_vel_raw` remap 명령 참고.
 
 ### 판단 로직 (decision_maker)
 
 ```mermaid
 flowchart LR
-    A{"운전자 이상?<br/>(bio_anomaly)"} -- 아니오 --> N["NORMAL<br/>개입 없음 (조이스틱 주행)"]
+    A{"운전자 이상?<br/>(bio_anomaly)"} -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
     A -- 예 --> B{"전방 장애물?<br/>(obstacle_detected)"}
     B -- 예 --> E["EMERGENCY_BRAKE<br/>현 차선 급제동"]
     B -- 아니오 --> M["MRM_PULL_OVER<br/>갓길 대피 (현재는 정지만)"]
@@ -122,7 +124,8 @@ ros2 launch safecar_bringup safecar.launch.py
 | `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
 | `/sensors/bio_anomaly` | std_msgs/Bool | safecar_comms | safecar_control |
 | `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
-| `/cmd_vel` | geometry_msgs/Twist | safecar_control (개입 시에만) | stella_md |
+| `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) / 추후 차선 추종 노드 | safecar_control |
+| `/cmd_vel` | geometry_msgs/Twist | safecar_control (단일 게이트, 10Hz) | stella_md |
 | `/imu/yaw` | std_msgs/Float64 | stella_ahrs | stella_md |
 | `/scan` | sensor_msgs/LaserScan | ydlidar_ros | (필요 시 safecar_control, 갓길 공간 확보 판단용) |
 | `/odom` | nav_msgs/Odometry | stella_md | (대시보드/로깅용) |
