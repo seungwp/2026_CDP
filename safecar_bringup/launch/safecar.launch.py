@@ -2,8 +2,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -14,6 +15,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        # 운전자 이상신호 시뮬레이션 발동 시각(초). 기본 10초 뒤 이상 발생(데모용).
+        # 자유 주행/teleop 테스트 시에는 -1로 꺼야 10초 뒤 게이트가 주행을 차단하지 않는다:
+        #   ros2 launch safecar_bringup safecar.launch.py anomaly_delay_sec:=-1.0
+        DeclareLaunchArgument(
+            'anomaly_delay_sec', default_value='10.0',
+            description='N초 후 bio_anomaly=True 시뮬레이션. 0 이하면 비활성(항상 정상).'),
+
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(stella_bringup_launch),
         ),
@@ -61,5 +69,6 @@ def generate_launch_description():
             executable='sensor_bridge_node',
             name='sensor_bridge_node',
             output='screen',
+            parameters=[{'anomaly_delay_sec': LaunchConfiguration('anomaly_delay_sec')}],
         ),
     ])
