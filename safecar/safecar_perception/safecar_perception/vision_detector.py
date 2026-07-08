@@ -13,10 +13,14 @@ class VisionDetector:
     """
 
     # 튜닝 파라미터 — 테스트 트랙(테이프 색·조명·카메라 각도)에 맞춰 조정할 것
-    ROI_TOP = 0.55        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
-    Y_EVAL = 0.9          # 오프셋을 계산하는 기준 행(높이 비율, 차체 바로 앞 지점)
+    # 2026-07-08 실측 기준: 카메라가 거의 수평이라 테이프가 화면 중간(0.45~0.7)에 보이고
+    # 근접 차선은 좌우로 화면을 벗어난다. 카메라를 아래로 숙여 달면 이 값들 재튜닝 필요.
+    ROI_TOP = 0.45        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
+    Y_EVAL = 0.7          # 오프셋을 계산하는 기준 행(높이 비율, 테이프가 보이는 구간 안)
     MIN_ABS_SLOPE = 0.3   # 이보다 완만한(수평에 가까운) 선분은 차선으로 안 봄 (정지선/그림자 배제)
-    HALF_LANE_PX = 200    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, 640 폭 기준)
+    HALF_LANE_PX = 340    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, y_eval 행 기준 실측 근사)
+    USE_WHITE = False     # 광택 바닥의 조명 반사가 흰색 마스크에 잡혀 가짜 차선을 만든다.
+                          # 현재 트랙은 노란 테이프뿐이라 끔. 흰 테이프를 추가하면 켜고 HSV 재조정.
 
     def __init__(self):
         print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
@@ -25,11 +29,12 @@ class VisionDetector:
         """(디버그 프레임, 차로 중심 오프셋 float 또는 None)을 반환한다."""
         height, width = frame.shape[:2]
 
-        # 1. 흰색/노란색 차선 마스크
+        # 1. 차선 색 마스크 (노란색 범위는 실측 테이프 기준으로 여유 있게)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
-        mask_yellow = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([30, 255, 255]))
-        mask = cv2.bitwise_or(mask_white, mask_yellow)
+        mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
+        if self.USE_WHITE:
+            mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
+            mask = cv2.bitwise_or(mask, mask_white)
 
         # 2. 하단 ROI에서만 엣지/직선 검출
         edges = cv2.Canny(mask, 50, 150)
@@ -58,7 +63,9 @@ class VisionDetector:
                     if abs(slope) < self.MIN_ABS_SLOPE:
                         continue
                     x_at = x1 + (y_eval - y1) / slope
-                if not (0 <= x_at < width):
+                # 근접 차선은 기준 행에서 화면 밖으로 나가는 게 정상(카메라가 낮아서).
+                # 화면 폭의 ±1배까지는 유효한 차선으로 인정하고, 그 이상만 노이즈로 버린다.
+                if not (-width <= x_at < 2 * width):
                     continue
                 cv2.line(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 if x_at < width / 2:

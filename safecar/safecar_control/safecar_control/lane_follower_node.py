@@ -20,9 +20,13 @@ class LaneFollowerNode(Node):
         self.declare_parameter('cruise_speed', 0.12)   # 전진 속도 m/s (트랙에서 튜닝)
         self.declare_parameter('steer_gain', 1.2)      # 조향 P게인 rad/s per offset(-1~+1)
         self.declare_parameter('offset_timeout', 0.5)  # 차선 유실 판정 시간(초)
+        # 오프셋 저역통과(EMA) 계수 0~1. 클수록 이전 값 비중이 커져 조향이 부드럽다.
+        # 프레임별 검출 노이즈(±0.1~0.2)가 그대로 조향에 실리는 것을 막는다.
+        self.declare_parameter('offset_smoothing', 0.7)
         self.cruise_speed = self.get_parameter('cruise_speed').value
         self.steer_gain = self.get_parameter('steer_gain').value
         self.offset_timeout = self.get_parameter('offset_timeout').value
+        self.offset_smoothing = self.get_parameter('offset_smoothing').value
 
         self.last_offset = 0.0
         self.last_offset_time = None
@@ -33,8 +37,17 @@ class LaneFollowerNode(Node):
         self.create_timer(0.05, self._on_timer)  # 20Hz
 
     def _on_offset(self, msg):
-        self.last_offset = msg.data
-        self.last_offset_time = self.get_clock().now()
+        now = self.get_clock().now()
+        stale = (
+            self.last_offset_time is None
+            or (now - self.last_offset_time).nanoseconds * 1e-9 > self.offset_timeout
+        )
+        if stale:
+            self.last_offset = msg.data  # 차선 재획득: 옛 값과 섞지 않고 새로 시작
+        else:
+            a = self.offset_smoothing
+            self.last_offset = a * self.last_offset + (1.0 - a) * msg.data
+        self.last_offset_time = now
 
     def _on_timer(self):
         fresh = (
