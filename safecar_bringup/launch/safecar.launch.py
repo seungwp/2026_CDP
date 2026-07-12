@@ -63,8 +63,7 @@ def generate_launch_description():
         ),
 
         # 차선 인식(인지부) + 차선 추종 주행(제어부) — lane_follow:=true일 때만.
-        # vision_detector는 이제 차선 오프셋만 publish하고(가짜 장애물 신호 제거됨),
-        # 장애물 감지는 위 Hailo 노드가 전담한다.
+        # 기존 딥러닝 기반(ufld_hailo_node)에서 OpenCV 기반(vision_detector_node)으로 변경!
         Node(
             package='safecar_perception',
             executable='vision_detector_node',
