@@ -34,6 +34,9 @@ class DecisionMakerNode(Node):
         self.last_raw = None
         self.last_raw_time = None
         self.raw_fresh = False
+        
+        # [추가] 갓길 정차(MRM) 시작 시간을 기록할 타이머 변수
+        self.mrm_start_time = None
 
         self.create_subscription(Bool, '/sensors/bio_anomaly', self._on_bio_anomaly, 10)
         self.create_subscription(Bool, '/perception/obstacle_detected', self._on_obstacle_detected, 10)
@@ -66,10 +69,33 @@ class DecisionMakerNode(Node):
             self.last_command = command
 
         if command == COMMAND_NORMAL:
+            self.mrm_start_time = None  # 정상 주행일 때는 타이머 초기화
             self.cmd_vel_pub.publish(self._gated_drive_cmd())
+            
+        elif "MRM" in command or self.bio_anomaly:
+            # [변경] 비상(운전자 이상) 시: 갓길 조향 후 정지 로직 (MRM)
+            if self.mrm_start_time is None:
+                self.mrm_start_time = self.get_clock().now()
+                self.get_logger().warn('🚨 운전자 생체 이상 감지! 갓길 정차 기동(MRM)을 시작합니다!')
+
+            elapsed = (self.get_clock().now() - self.mrm_start_time).nanoseconds * 1e-9
+            cmd = Twist()
+
+            # 2.5초 동안: 속도를 줄이고 우측으로 부드럽게 조향하여 차선 밖으로 빼기
+            if elapsed < 2.5:
+                cmd.linear.x = 0.08  # 감속 전진 (기존 cruise_speed 보다 느리게)
+                cmd.angular.z = -0.5 # 우측 조향 (마이너스 값이 우측 꺾임)
+            else:
+                # 2.5초 이후: 완전 정지
+                cmd.linear.x = 0.0
+                cmd.angular.z = 0.0
+                if elapsed < 2.6: # 딱 한 번만 정지 로그 띄우기
+                    self.get_logger().info('갓길 정차 완료. 차량을 완전히 정지합니다.')
+
+            self.cmd_vel_pub.publish(cmd)
+            
         else:
-            # 비상: 주행 명령 차단, 정지 오버라이드.
-            # TODO: MRM_PULL_OVER는 차선/스캔 기반 갓길 조향으로 교체 예정. 지금은 정지만 수행.
+            # 장애물 감지(EMERGENCY_BRAKE) 등 다른 비상 상황은 우측 조향 없이 즉시 급정거
             self.cmd_vel_pub.publish(Twist())
 
     def _gated_drive_cmd(self):
