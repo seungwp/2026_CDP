@@ -1,49 +1,33 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import Float32
+from cv_bridge import CvBridge
 import cv2
 import numpy as np
 
-
 class VisionDetector:
-    """카메라 프레임에서 차선을 인식해 차로 중심 대비 횡방향 오프셋을 계산한다. (인지부, ROS 비의존 순수 로직)
-
-    장애물 인식은 이 클래스가 아니라 Hailo NPU 노드(stella_hailo_rpi5_ros2_examples)가 담당한다.
-
-    오프셋 규약: -1.0 ~ +1.0 정규화 값.
-    + 는 차로 중심이 화면 중앙보다 오른쪽에 있음(차가 왼쪽으로 치우침 → 우조향 필요),
-    - 는 그 반대. 차선을 하나도 못 찾으면 None.
-    """
-
-    # 튜닝 파라미터 — 테스트 트랙(테이프 색·조명·카메라 각도)에 맞춰 조정할 것
-    ROI_TOP = 0.55        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
-    Y_EVAL = 0.9          # 오프셋을 계산하는 기준 행(높이 비율, 차체 바로 앞 지점)
-    # 2026-07-08 실측 기준: 카메라가 거의 수평이라 테이프가 화면 중간(0.45~0.7)에 보이고
-    # 근접 차선은 좌우로 화면을 벗어난다. 카메라를 아래로 숙여 달면 이 값들 재튜닝 필요.
-    ROI_TOP = 0.45        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
-    Y_EVAL = 0.7          # 오프셋을 계산하는 기준 행(높이 비율, 테이프가 보이는 구간 안)
-    MIN_ABS_SLOPE = 0.3   # 이보다 완만한(수평에 가까운) 선분은 차선으로 안 봄 (정지선/그림자 배제)
-    HALF_LANE_PX = 200    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, 640 폭 기준)
-    HALF_LANE_PX = 340    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, y_eval 행 기준 실측 근사)
-    USE_WHITE = False     # 광택 바닥의 조명 반사가 흰색 마스크에 잡혀 가짜 차선을 만든다.
-                          # 현재 트랙은 노란 테이프뿐이라 끔. 흰 테이프를 추가하면 켜고 HSV 재조정.
+    """카메라 프레임에서 차선을 인식해 차로 중심 대비 횡방향 오프셋을 계산한다."""
+    ROI_TOP = 0.45        
+    Y_EVAL = 0.7          
+    MIN_ABS_SLOPE = 0.3   
+    HALF_LANE_PX = 340    
+    USE_WHITE = False     
 
     def __init__(self):
-        print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
+        pass # Node 클래스에서 초기화 로그를 띄우므로 여기선 생략
 
     def process_frame(self, frame):
-        """(디버그 프레임, 차로 중심 오프셋 float 또는 None)을 반환한다."""
         height, width = frame.shape[:2]
 
-        # 1. 흰색/노란색 차선 마스크
-        # 1. 차선 색 마스크 (노란색 범위는 실측 테이프 기준으로 여유 있게)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
         mask_yellow = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([30, 255, 255]))
-        mask = cv2.bitwise_or(mask_white, mask_yellow)
         mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
+        
         if self.USE_WHITE:
             mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
             mask = cv2.bitwise_or(mask, mask_white)
 
-        # 2. 하단 ROI에서만 엣지/직선 검출
         edges = cv2.Canny(mask, 50, 150)
         roi_top = int(height * self.ROI_TOP)
         roi = np.zeros_like(edges)
@@ -56,32 +40,30 @@ class VisionDetector:
         debug = frame.copy()
         cv2.line(debug, (width // 2, roi_top), (width // 2, height), (255, 0, 0), 1)
 
-        # 3. 각 선분을 기준 행(y_eval)까지 연장한 x좌표로 좌/우 차선 분류
         y_eval = int(height * self.Y_EVAL)
         left_xs, right_xs = [], []
+        
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
                 dx, dy = x2 - x1, y2 - y1
                 if dx == 0:
-                    x_at = float(x1)  # 수직선
+                    x_at = float(x1)
                 else:
                     slope = dy / dx
                     if abs(slope) < self.MIN_ABS_SLOPE:
                         continue
                     x_at = x1 + (y_eval - y1) / slope
-                if not (0 <= x_at < width):
-                # 근접 차선은 기준 행에서 화면 밖으로 나가는 게 정상(카메라가 낮아서).
-                # 화면 폭의 ±1배까지는 유효한 차선으로 인정하고, 그 이상만 노이즈로 버린다.
+                
                 if not (-width <= x_at < 2 * width):
                     continue
+                    
                 cv2.line(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 if x_at < width / 2:
                     left_xs.append(x_at)
                 else:
                     right_xs.append(x_at)
 
-        # 4. 차로 중심 추정 (한쪽만 보이면 반폭 가정으로 보정)
         if left_xs and right_xs:
             center = (np.median(left_xs) + np.median(right_xs)) / 2.0
         elif left_xs:
@@ -99,3 +81,57 @@ class VisionDetector:
         cv2.putText(debug, f"offset={offset:+.2f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         return debug, offset
+
+
+class VisionDetectorNode(Node):
+    """실제 ROS2 환경과 VisionDetector 로직을 연결해 주는 래퍼 노드"""
+    
+    def __init__(self):
+        super().__init__('vision_detector_node')
+        self.get_logger().info("[System] Vision: OpenCV 차선 인식 노드 초기화 완료.")
+        
+        self.detector = VisionDetector()
+        self.bridge = CvBridge()
+        
+        # 카메라 영상 구독 (입력)
+        self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
+        
+        # 제어부로 보낼 오프셋 및 디버그 영상 퍼블리셔 (출력)
+        self.offset_pub = self.create_publisher(Float32, '/perception/lane_offset', 10)
+        self.image_pub = self.create_publisher(Image, '/perception/lane_image', 10)
+
+    def image_callback(self, msg):
+        try:
+            # 1. ROS Image 메시지를 OpenCV 포맷으로 변환
+            cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            
+            # 2. 핵심 인식 로직 수행
+            debug_frame, offset = self.detector.process_frame(cv_image)
+            
+            # 3. 오프셋이 찾아지면 제어부로 퍼블리시
+            if offset is not None:
+                offset_msg = Float32()
+                offset_msg.data = offset
+                self.offset_pub.publish(offset_msg)
+                
+            # 4. 디버그/대시보드용 이미지 퍼블리시
+            debug_msg = self.bridge.cv2_to_imgmsg(debug_frame, 'bgr8')
+            self.image_pub.publish(debug_msg)
+            
+        except Exception as e:
+            self.get_logger().error(f"이미지 처리 중 오류 발생: {e}")
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = VisionDetectorNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

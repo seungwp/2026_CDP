@@ -24,6 +24,8 @@ setup(
     entry_points={
         'console_scripts': [
             'vision_detector_node = safecar_perception.vision_detector_node:main',
+            'mock_obstacle_node = safecar_perception.mock_obstacle_node:main',
+            'ufld_hailo_node = safecar_perception.ufld_hailo_node:main',
         ],
     },
 )

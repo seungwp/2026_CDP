@@ -49,18 +49,17 @@ def generate_launch_description():
             parameters=[{'width': 640, 'height': 480, 'orientation': 180}],
         ),
 
-        # Hailo-8 NPU 객체 인식. '/detection_image'(디버그용 박스 영상)와
-        # '/perception/obstacle_detected'(장애물 유무, 제어부 입력) publish.
-        # 선행 조건: hailo-rpi5-examples + install_ros2.sh 설치 (Pi에 설치 완료됨).
-        # remap 필요: 노드는 상대 토픽 'image_raw'를 구독하므로 camera_ros의
-        # '/camera/image_raw'로 연결해줘야 한다.
-        Node(
-            package='stella_hailo_rpi5_ros2_examples',
-            executable='hailo_ros2_detection_node',
-            name='hailo_ros2_detection_node',
-            output='screen',
-            remappings=[('image_raw', '/camera/image_raw')],
-        ),
+        # ---------------------------------------------------------------------
+        # [수정됨] Hailo-8 NPU 객체 인식 노드 임시 비활성화 (차선 추종 우선 테스트용)
+        # ---------------------------------------------------------------------
+        # Node(
+        #     package='stella_hailo_rpi5_ros2_examples',
+        #     executable='hailo_ros2_detection_node',
+        #     name='hailo_ros2_detection_node',
+        #     output='screen',
+        #     remappings=[('image_raw', '/camera/image_raw')],
+        # ),
+        # ---------------------------------------------------------------------
 
         # 차선 인식(인지부) + 차선 추종 주행(제어부) — lane_follow:=true일 때만.
         # 기존 딥러닝 기반(ufld_hailo_node)에서 OpenCV 기반(vision_detector_node)으로 변경!
