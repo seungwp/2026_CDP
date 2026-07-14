@@ -35,30 +35,25 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(stella_bringup_launch),
         ),
 
-        # 라즈베리파이 카메라 모듈(CSI/libcamera) 드라이버. '/camera/image_raw' publish.
-        # 별도 설치 필요: https://github.com/christianrauch/camera_ros
-        # 640x480 고정: hailo_ros2_detection_node의 GStreamer 파이프라인이 640x480을
-        # 가정하므로, 기본값(800x600)으로 두면 추론 입력 영상이 깨진다(4분할 증상).
-        # orientation 180: 카메라 모듈이 차체에 거꾸로 장착되어 있어 센서 수준에서 뒤집음
-        # (libcamera 처리라 CPU 비용 없음). 장착 방향이 바뀌면 이 값만 수정.
+        # [수정됨] 카메라 노드
+        # 드라이버 충돌 방지를 위해 파라미터를 비워 기본 해상도로 작동시킵니다.
         Node(
             package='camera_ros',
             executable='camera_node',
             name='camera',
             output='screen',
-            parameters=[{'width': 640, 'height': 480, 'orientation': 180}],
         ),
 
         # ---------------------------------------------------------------------
-        # [수정됨] Hailo-8 NPU 객체 인식 노드 임시 비활성화 (차선 추종 우선 테스트용)
+        # [복구됨] Hailo-8 NPU 객체 인식 노드
         # ---------------------------------------------------------------------
-        # Node(
-        #     package='stella_hailo_rpi5_ros2_examples',
-        #     executable='hailo_ros2_detection_node',
-        #     name='hailo_ros2_detection_node',
-        #     output='screen',
-        #     remappings=[('image_raw', '/camera/image_raw')],
-        # ),
+        Node(
+             package='stella_hailo_rpi5_ros2_examples',
+             executable='hailo_ros2_detection_node',
+             name='hailo_ros2_detection_node',
+             output='screen',
+             remappings=[('image_raw', '/camera/image_raw')],
+        ),
         # ---------------------------------------------------------------------
 
         # 차선 인식(인지부) + 차선 추종 주행(제어부) — lane_follow:=true일 때만.
