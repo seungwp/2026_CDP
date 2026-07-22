@@ -12,7 +12,7 @@ class VisionDetector:
     Y_EVAL = 0.7          
     MIN_ABS_SLOPE = 0.3   
     HALF_LANE_PX = 340    
-    USE_WHITE = False     
+    USE_WHITE = True
 
     def __init__(self):
         pass # Node 클래스에서 초기화 로그를 띄우므로 여기선 생략

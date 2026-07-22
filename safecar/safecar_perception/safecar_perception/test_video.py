@@ -24,7 +24,7 @@ from vision_detector_node import VisionDetector
 
 def main():
     # 영상 경로
-    video_path = r"C:\Users\jinda\OneDrive\바탕 화면\2026_CDP\test_data\track_video.mp4"
+    video_path = r"C:\Users\user\Desktop\drive_videos\test00.mp4"
     
     if not os.path.exists(video_path):
         print(f"오류: 영상을 찾을 수 없습니다. 경로를 확인하세요: {video_path}")
