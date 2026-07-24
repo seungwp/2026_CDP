@@ -18,17 +18,19 @@ class VisionDetector:
                  (warp 폭의 절반)을 1.0으로 정규화 → offset 규약과 스케일 일치.
     """
 
-    # --- 색 검출 파라미터 (기존 값 유지: 트랙 조명/차선색에 맞춰 여기만 손대면 됨) ---
-    USE_WHITE = True
-
     def __init__(self, persp_src, num_windows=9, window_margin=60, min_pix=50,
-                 num_path_points=6, lane_width_frac=1.0):
+                 num_path_points=6, lane_width_frac=1.0,
+                 use_white=False, follow_single_line=False):
         # persp_src: np.float32 (4,2) — [top-left, top-right, bottom-right, bottom-left]
         self.persp_src = np.asarray(persp_src, dtype=np.float32).reshape(4, 2)
         self.num_windows = num_windows
         self.window_margin = window_margin
         self.min_pix = min_pix
         self.num_path_points = num_path_points
+        # 색 검출: 흰색 포함 여부(실내 노란선+반사바닥이면 False 권장)
+        self.use_white = use_white
+        # 단일 선 추종 모드: 노란선 하나를 직접 따라감(좌/우 차선 가정 안 함)
+        self.follow_single_line = follow_single_line
 
         # 워프 출력 크기는 첫 프레임에서 원본 크기로 확정한다.
         self.warp_w = None
@@ -53,7 +55,7 @@ class VisionDetector:
     def _color_mask(self, frame):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))  # 노랑 계열
-        if self.USE_WHITE:
+        if self.use_white:
             mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
             mask = cv2.bitwise_or(mask, mask_white)
         return mask
@@ -106,37 +108,48 @@ class VisionDetector:
         mask = self._color_mask(frame)
         warped = cv2.warpPerspective(mask, self.M, (w, h), flags=cv2.INTER_NEAREST)
 
-        lx, ly, rx, ry = self._sliding_window(warped)
-
         min_fit = 200  # 피팅에 필요한 최소 픽셀 수
-        left_ok = len(lx) >= min_fit
-        right_ok = len(rx) >= min_fit
-
-        left_fit = np.polyfit(ly, lx, 2) if left_ok else None
-        right_fit = np.polyfit(ry, rx, 2) if right_ok else None
 
         def poly_x(fit, y):
             return fit[0] * y * y + fit[1] * y + fit[2]
 
-        # 중심선 계산 (양쪽/한쪽/없음)
-        if left_fit is not None and right_fit is not None:
-            width_px = poly_x(right_fit, h - 1) - poly_x(left_fit, h - 1)
-            if width_px > 20:  # 유효 차로폭이면 기억 갱신(EMA)
-                self._lane_width_px = (width_px if self._lane_width_px is None
-                                       else 0.8 * self._lane_width_px + 0.2 * width_px)
+        left_fit = right_fit = None
+
+        if self.follow_single_line:
+            # 단일 선(노란선) 직접 추종: 워프된 모든 차선 픽셀에 다항식 하나를 피팅
+            nz = warped.nonzero()
+            ys_all, xs_all = np.array(nz[0]), np.array(nz[1])
+            if len(xs_all) < min_fit:
+                return self._draw(frame, None, None, None, None), None, None
+            line_fit = np.polyfit(ys_all, xs_all, 2)
 
             def center_x(y):
-                return 0.5 * (poly_x(left_fit, y) + poly_x(right_fit, y))
-        elif left_fit is not None or right_fit is not None:
-            fit = left_fit if left_fit is not None else right_fit
-            sign = +1.0 if left_fit is not None else -1.0  # 왼쪽만 보이면 +half폭, 오른쪽만이면 -
-            offw = (self._lane_width_px / 2.0) if self._lane_width_px else (self.lane_width * half)
-
-            def center_x(y):
-                return poly_x(fit, y) + sign * offw
+                return poly_x(line_fit, y)
         else:
-            debug = self._draw(frame, None, None, None, None)
-            return debug, None, None
+            # 좌/우 차선 → 차로 중심 추종
+            lx, ly, rx, ry = self._sliding_window(warped)
+            left_ok = len(lx) >= min_fit
+            right_ok = len(rx) >= min_fit
+            left_fit = np.polyfit(ly, lx, 2) if left_ok else None
+            right_fit = np.polyfit(ry, rx, 2) if right_ok else None
+
+            if left_fit is not None and right_fit is not None:
+                width_px = poly_x(right_fit, h - 1) - poly_x(left_fit, h - 1)
+                if width_px > 20:  # 유효 차로폭이면 기억 갱신(EMA)
+                    self._lane_width_px = (width_px if self._lane_width_px is None
+                                           else 0.8 * self._lane_width_px + 0.2 * width_px)
+
+                def center_x(y):
+                    return 0.5 * (poly_x(left_fit, y) + poly_x(right_fit, y))
+            elif left_fit is not None or right_fit is not None:
+                fit = left_fit if left_fit is not None else right_fit
+                sign = +1.0 if left_fit is not None else -1.0  # 왼쪽만 보이면 +half폭, 오른쪽만이면 -
+                offw = (self._lane_width_px / 2.0) if self._lane_width_px else (self.lane_width * half)
+
+                def center_x(y):
+                    return poly_x(fit, y) + sign * offw
+            else:
+                return self._draw(frame, None, None, None, None), None, None
 
         # 맨 아래 행 오프셋 (기존 규약 유지)
         offset = float(np.clip((center_x(h - 1) - half) / half, -1.0, 1.0))
@@ -200,7 +213,9 @@ class VisionDetectorNode(Node):
         self.declare_parameter('window_margin', 60)
         self.declare_parameter('min_pix', 50)
         self.declare_parameter('num_path_points', 6)
-        self.declare_parameter('lane_width_frac', 1.0)  # 단일차선 시 반대편 추정 폭(정규화)
+        self.declare_parameter('lane_width_frac', 1.0)   # 단일차선 시 반대편 추정 폭(정규화)
+        self.declare_parameter('use_white', False)       # 흰색 검출 포함(실내 노란선이면 False)
+        self.declare_parameter('follow_single_line', False)  # 단일 선 직접 추종 모드
 
         src = self.get_parameter('persp_src').value
         self.detector = VisionDetector(
@@ -210,6 +225,8 @@ class VisionDetectorNode(Node):
             min_pix=self.get_parameter('min_pix').value,
             num_path_points=self.get_parameter('num_path_points').value,
             lane_width_frac=self.get_parameter('lane_width_frac').value,
+            use_white=self.get_parameter('use_white').value,
+            follow_single_line=self.get_parameter('follow_single_line').value,
         )
         self.bridge = CvBridge()
         self.get_logger().info("[System] Vision: 버드아이 차선 인식 노드 초기화 완료.")

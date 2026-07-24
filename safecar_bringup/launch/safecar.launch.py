@@ -69,6 +69,9 @@ def generate_launch_description():
             # 보며 이 값을 조정(캘리브레이션)한다: [tl_x,tl_y, tr_x,tr_y, br_x,br_y, bl_x,bl_y]
             parameters=[{
                 'persp_src': [200.0, 280.0, 440.0, 280.0, 600.0, 470.0, 40.0, 470.0],
+                # 실내 노란선 한 줄 추종: 흰색 끄고 단일 선 모드. (양쪽 차선 트랙이면 둘 다 False)
+                'use_white': False,
+                'follow_single_line': True,
             }],
         ),
         Node(
