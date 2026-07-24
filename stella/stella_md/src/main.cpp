@@ -31,12 +31,22 @@ stellaN5_node::stellaN5_node() : Node("stella_md_node")
   odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", qos);
   odom_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
+  last_cmd_vel_time_ = this->now();
+
   Serial_timer = this->create_wall_timer(1ms, std::bind(&stellaN5_node::serial_callback, this));
 }
 
 stellaN5_node::~stellaN5_node()
 {
+  stop_motor();          // 종료(Ctrl+C) 시 바퀴에 정지 명령을 남기고 끊는다
   MW_Serial_DisConnect();
+}
+
+void stellaN5_node::stop_motor()
+{
+  goal_linear_velocity_ = 0.0;
+  goal_angular_velocity_ = 0.0;
+  dual_m_command(dual_m_command_select::m_lav, 0.0, 0.0);
 }
 
 void stellaN5_node::ahrs_yaw_data_callback(const std_msgs::msg::Float64::SharedPtr msg)
@@ -52,6 +62,9 @@ void stellaN5_node::command_velocity_callback(const geometry_msgs::msg::Twist::S
     goal_angular_velocity_ = cmd_vel_msg->angular.z ;
 
     dual_m_command(dual_m_command_select::m_lav, goal_linear_velocity_, goal_angular_velocity_);
+
+    last_cmd_vel_time_ = this->now();
+    cmd_vel_active_ = true;
   }
 }
 
@@ -63,6 +76,15 @@ void stellaN5_node::serial_callback()
     Motor_MonitoringCommand(channel_2, _position);
 
     update_odometry();
+
+    // cmd_vel 워치독: 마지막 명령 이후 타임아웃이 지나면 정지 명령을 한 번 보낸다.
+    // (상위 자율주행 스택을 Ctrl+C로 죽여도 바퀴가 계속 굴러가는 것을 방지)
+    if (cmd_vel_active_ &&
+        (this->now() - last_cmd_vel_time_).seconds() > cmd_vel_timeout_)
+    {
+      stop_motor();
+      cmd_vel_active_ = false;
+    }
   }
 }
 

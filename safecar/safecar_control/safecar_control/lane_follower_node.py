@@ -16,10 +16,12 @@ class LaneFollowerNode(Node):
 
         # 기존 자율주행 파라미터
         self.declare_parameter('cruise_speed', 0.12)   # 전진 속도 m/s
-        self.declare_parameter('steer_gain', 1.2)      # 조향 P게인 rad/s
+        self.declare_parameter('steer_gain', 0.8)      # 조향 P게인 rad/s (과보정/좌우진동 방지 위해 하향)
         self.declare_parameter('steer_d_gain', 0.3)    # 조향 D게인 (핑퐁 방지)
+        self.declare_parameter('steer_deadband', 0.05) # 이 이내 오차는 무시(중앙 근처 미세 떨림 방지)
+        self.declare_parameter('max_steer', 1.0)       # 조향 각속도 상한 rad/s (과조향 클램프)
         self.declare_parameter('offset_timeout', 0.5)  # 차선 유실 판정 시간(초)
-        self.declare_parameter('offset_smoothing', 0.7)# 오프셋 저역통과 필터 계수
+        self.declare_parameter('offset_smoothing', 0.8)# 오프셋 저역통과 필터 계수(높을수록 부드럽게)
         
         # [추가] MRM 전용 파라미터
         # target_offset이 음수이면 차로 중심이 화면 좌측에 오도록 유도 -> 즉, 차는 우측 갓길로 이동함
@@ -30,6 +32,8 @@ class LaneFollowerNode(Node):
         self.cruise_speed = self.get_parameter('cruise_speed').value
         self.steer_gain = self.get_parameter('steer_gain').value
         self.steer_d_gain = self.get_parameter('steer_d_gain').value
+        self.steer_deadband = self.get_parameter('steer_deadband').value
+        self.max_steer = self.get_parameter('max_steer').value
         self.offset_timeout = self.get_parameter('offset_timeout').value
         self.offset_smoothing = self.get_parameter('offset_smoothing').value
         
@@ -129,13 +133,19 @@ class LaneFollowerNode(Node):
                 # 목표 오프셋 대비 현재 오차 계산 (P 제어용)
                 # target이 -0.6이고 현재가 0.0이면, 오차는 +0.6 -> 차체를 우측으로 강하게 조향
                 current_error = self.last_offset - target_offset
-                
+
+                # 데드밴드: 중앙에 충분히 가까우면 조향하지 않는다(미세한 좌우 떨림 억제)
+                if abs(current_error) < self.steer_deadband:
+                    current_error = 0.0
+
                 # 오차의 변화량 (D 제어용)
                 error_diff = current_error - self.prev_error
-                
+
                 # 최종 조향값 계산: 오차가 양수(+)면 우조향(-) 필요
-                cmd.angular.z = -(self.steer_gain * current_error) - (self.steer_d_gain * error_diff)
-                
+                steer = -(self.steer_gain * current_error) - (self.steer_d_gain * error_diff)
+                # 과조향 클램프
+                cmd.angular.z = max(-self.max_steer, min(self.max_steer, steer))
+
                 self.prev_error = current_error
             else:
                 # 완전 정지 상태 유지

@@ -35,7 +35,14 @@ private:
     
     double goal_linear_velocity_;
     double goal_angular_velocity_;
-    
+
+    // cmd_vel 워치독: 상위 노드가 죽거나 통신이 끊겨도 마지막 속도가 하드웨어에
+    // 래치돼 계속 주행하는 것을 막는다. 마지막 cmd_vel 이후 cmd_vel_timeout_ 초가
+    // 지나면 정지 명령을 한 번 보낸다.
+    rclcpp::Time last_cmd_vel_time_;
+    double cmd_vel_timeout_ = 0.5;
+    bool cmd_vel_active_ = false;
+
     int left_encoder_prev=0,right_encoder_prev=0;
     
     double ahrs_yaw, delta_th=0.0,delta_s=0.0,delta_x=0.0,delta_y=0.0,x=0.0,y=0.0,th=0.0,delta_left = 0,delta_right = 0;
@@ -43,5 +50,6 @@ private:
     void ahrs_yaw_data_callback(const std_msgs::msg::Float64::SharedPtr msg);
     void command_velocity_callback(const geometry_msgs::msg::Twist::SharedPtr cmd_vel_msg);
     void serial_callback();
+    void stop_motor();
     bool update_odometry();
 };
