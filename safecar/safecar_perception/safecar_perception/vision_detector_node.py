@@ -231,10 +231,10 @@ class VisionDetectorNode(Node):
                 flat = [v for pt in path for v in pt]
                 self.path_pub.publish(Float32MultiArray(data=flat))
 
-            if self.image_pub.get_subscription_count() > 0:
-                debug_msg = self.bridge.cv2_to_imgmsg(debug_frame, 'bgr8')
-                debug_msg.header = msg.header
-                self.image_pub.publish(debug_msg)
+            # 캘리브레이션 중엔 항상 발행(원격 rqt 구독자 수 감지가 불안정할 수 있어 게이트 제거)
+            debug_msg = self.bridge.cv2_to_imgmsg(debug_frame, 'bgr8')
+            debug_msg.header = msg.header
+            self.image_pub.publish(debug_msg)
         except Exception as e:
             self.get_logger().error(f"이미지 처리 중 오류 발생: {e}")
 
