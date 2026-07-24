@@ -1,66 +1,93 @@
 import cv2
 import numpy as np
 
+
 class VisionDetector:
+    """카메라 프레임에서 차선을 인식해 차로 중심 대비 횡방향 오프셋을 계산한다. (인지부, ROS 비의존 순수 로직)
+
+    장애물 인식은 이 클래스가 아니라 Hailo NPU 노드(stella_hailo_rpi5_ros2_examples)가 담당한다.
+
+    오프셋 규약: -1.0 ~ +1.0 정규화 값.
+    + 는 차로 중심이 화면 중앙보다 오른쪽에 있음(차가 왼쪽으로 치우침 → 우조향 필요),
+    - 는 그 반대. 차선을 하나도 못 찾으면 None.
+    """
+
+    # 튜닝 파라미터 — 테스트 트랙(테이프 색·조명·카메라 각도)에 맞춰 조정할 것
+    # 2026-07-08 실측 기준: 카메라가 거의 수평이라 테이프가 화면 중간(0.45~0.7)에 보이고
+    # 근접 차선은 좌우로 화면을 벗어난다. 카메라를 아래로 숙여 달면 이 값들 재튜닝 필요.
+    ROI_TOP = 0.45        # 화면 높이의 이 비율 지점부터 아래에서만 차선 탐색
+    Y_EVAL = 0.7          # 오프셋을 계산하는 기준 행(높이 비율, 테이프가 보이는 구간 안)
+    MIN_ABS_SLOPE = 0.3   # 이보다 완만한(수평에 가까운) 선분은 차선으로 안 봄 (정지선/그림자 배제)
+    HALF_LANE_PX = 340    # 한쪽 차선만 보일 때 가정하는 차로 반폭(픽셀, y_eval 행 기준 실측 근사)
+    USE_WHITE = False     # 광택 바닥의 조명 반사가 흰색 마스크에 잡혀 가짜 차선을 만든다.
+                          # 현재 트랙은 노란 테이프뿐이라 끔. 흰 테이프를 추가하면 켜고 HSV 재조정.
+
     def __init__(self):
-        # 차선 인식을 위한 HSV 색상 범위 (트랙 환경에 맞게 튜닝 필요)
-        # 흰색 차선
-        self.lower_white = np.array([0, 0, 180])
-        self.upper_white = np.array([180, 40, 255])
-        # 노란색 차선
-        self.lower_yellow = np.array([20, 100, 100])
-        self.upper_yellow = np.array([40, 255, 255])
+        print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
 
-    def process_image(self, frame):
-        """
-        카메라 프레임을 받아 차선 오프셋과 디버그용 이미지를 반환합니다.
-        offset: -1.0(왼쪽 끝) ~ 0.0(중앙) ~ 1.0(오른쪽 끝)
-        차선을 찾지 못한 경우 None을 반환합니다.
-        """
+    def process_frame(self, frame):
+        """(디버그 프레임, 차로 중심 오프셋 float 또는 None)을 반환한다."""
         height, width = frame.shape[:2]
-        
-        # 1. 연산 속도 확보를 위해 이미지 하단(ROI)만 잘라서 사용
-        roi_top = int(height * 0.5)
-        roi = frame[roi_top:height, 0:width]
-        roi_h, roi_w = roi.shape[:2]
 
-        # 2. 가우시안 블러 및 HSV 변환
-        blurred = cv2.GaussianBlur(roi, (5, 5), 0)
-        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+        # 1. 차선 색 마스크 (노란색 범위는 실측 테이프 기준으로 여유 있게)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
+        if self.USE_WHITE:
+            mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
+            mask = cv2.bitwise_or(mask, mask_white)
 
-        # 3. 색상 마스크 생성 (흰색 + 노란색)
-        mask_white = cv2.inRange(hsv, self.lower_white, self.upper_white)
-        mask_yellow = cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)
-        mask_combined = cv2.bitwise_or(mask_white, mask_yellow)
+        # 2. 하단 ROI에서만 엣지/직선 검출
+        edges = cv2.Canny(mask, 50, 150)
+        roi_top = int(height * self.ROI_TOP)
+        roi = np.zeros_like(edges)
+        cv2.rectangle(roi, (0, roi_top), (width, height), 255, -1)
+        masked_edges = cv2.bitwise_and(edges, roi)
 
-        # 4. 무게중심(Centroid) 계산을 통한 차선 중앙 파악
-        M = cv2.moments(mask_combined)
-        
-        center_x = roi_w // 2
-        
-        if M["m00"] > 0:
-            # 차선 픽셀들의 무게중심 X 좌표
-            cx = int(M["m10"] / M["m00"])
-            
-            # 오프셋 계산: (차선 중심 - 화면 중심) / (화면 절반 너비)
-            # 결과: 오른쪽으로 치우치면 양수(+), 왼쪽이면 음수(-)
-            offset = (cx - center_x) / float(center_x)
-            
-            # 디버그 영상에 시각화 (인식된 중심점 파란색 선)
-            cv2.line(roi, (cx, 0), (cx, roi_h), (255, 0, 0), 3)
+        lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50,
+                                minLineLength=40, maxLineGap=120)
+
+        debug = frame.copy()
+        cv2.line(debug, (width // 2, roi_top), (width // 2, height), (255, 0, 0), 1)
+
+        # 3. 각 선분을 기준 행(y_eval)까지 연장한 x좌표로 좌/우 차선 분류
+        y_eval = int(height * self.Y_EVAL)
+        left_xs, right_xs = [], []
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                dx, dy = x2 - x1, y2 - y1
+                if dx == 0:
+                    x_at = float(x1)  # 수직선
+                else:
+                    slope = dy / dx
+                    if abs(slope) < self.MIN_ABS_SLOPE:
+                        continue
+                    x_at = x1 + (y_eval - y1) / slope
+                # 근접 차선은 기준 행에서 화면 밖으로 나가는 게 정상(카메라가 낮아서).
+                # 화면 폭의 ±1배까지는 유효한 차선으로 인정하고, 그 이상만 노이즈로 버린다.
+                if not (-width <= x_at < 2 * width):
+                    continue
+                cv2.line(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                if x_at < width / 2:
+                    left_xs.append(x_at)
+                else:
+                    right_xs.append(x_at)
+
+        # 4. 차로 중심 추정 (한쪽만 보이면 반폭 가정으로 보정)
+        if left_xs and right_xs:
+            center = (np.median(left_xs) + np.median(right_xs)) / 2.0
+        elif left_xs:
+            center = np.median(left_xs) + self.HALF_LANE_PX
+        elif right_xs:
+            center = np.median(right_xs) - self.HALF_LANE_PX
         else:
-            # [핵심 수정] 차선을 찾지 못했을 때 0.0이 아닌 None 반환
-            offset = None
+            cv2.putText(debug, "NO LANE", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            return debug, None
 
-        # 디버그 영상 시각화 보강 (화면 중심 빨간색 선)
-        cv2.line(roi, (center_x, 0), (center_x, roi_h), (0, 0, 255), 1)
-        
-        # 잘라냈던 ROI를 다시 원본 프레임에 덮어씌움
-        debug_frame = frame.copy()
-        debug_frame[roi_top:height, 0:width] = roi
+        offset = float(np.clip((center - width / 2) / (width / 2), -1.0, 1.0))
 
-        # [핵심 수정] offset이 None이 아닐 때만 범위 클리핑 (-1.0 ~ 1.0)
-        if offset is not None:
-            offset = max(-1.0, min(1.0, offset))
-
-        return offset, debug_frame
+        cv2.circle(debug, (int(center), y_eval), 6, (0, 0, 255), -1)
+        cv2.putText(debug, f"offset={offset:+.2f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        return debug, offset

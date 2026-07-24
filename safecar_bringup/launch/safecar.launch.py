@@ -35,8 +35,12 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(stella_bringup_launch),
         ),
 
-        # 카메라 노드. 버드아이 원근 변환(persp_src)이 해상도에 고정이므로
-        # 해상도를 명시 고정한다(manual_drive.launch.py와 동일: 640x480, 상하반전 보정).
+        # 라즈베리파이 카메라 모듈(CSI/libcamera) 드라이버. '/camera/image_raw' publish.
+        # 별도 설치 필요: https://github.com/christianrauch/camera_ros
+        # 640x480 고정: hailo_ros2_detection_node의 GStreamer 파이프라인이 640x480을
+        # 가정하므로, 기본값(800x600)으로 두면 추론 입력 영상이 깨진다(4분할 증상).
+        # orientation 180: 카메라 모듈이 차체에 거꾸로 장착되어 있어 센서 수준에서 뒤집음
+        # (libcamera 처리라 CPU 비용 없음). 장착 방향이 바뀌면 이 값만 수정.
         Node(
             package='camera_ros',
             executable='camera_node',
@@ -45,34 +49,28 @@ def generate_launch_description():
             parameters=[{'width': 640, 'height': 480, 'orientation': 180}],
         ),
 
-        # ---------------------------------------------------------------------
-        # [복구됨] Hailo-8 NPU 객체 인식 노드
-        # ---------------------------------------------------------------------
+        # Hailo-8 NPU 객체 인식. '/detection_image'(디버그용 박스 영상)와
+        # '/perception/obstacle_detected'(장애물 유무, 제어부 입력) publish.
+        # 선행 조건: hailo-rpi5-examples + install_ros2.sh 설치 (Pi에 설치 완료됨).
+        # remap 필요: 노드는 상대 토픽 'image_raw'를 구독하므로 camera_ros의
+        # '/camera/image_raw'로 연결해줘야 한다.
         Node(
-             package='stella_hailo_rpi5_ros2_examples',
-             executable='hailo_ros2_detection_node',
-             name='hailo_ros2_detection_node',
-             output='screen',
-             remappings=[('image_raw', '/camera/image_raw')],
+            package='stella_hailo_rpi5_ros2_examples',
+            executable='hailo_ros2_detection_node',
+            name='hailo_ros2_detection_node',
+            output='screen',
+            remappings=[('image_raw', '/camera/image_raw')],
         ),
-        # ---------------------------------------------------------------------
 
         # 차선 인식(인지부) + 차선 추종 주행(제어부) — lane_follow:=true일 때만.
-        # 기존 딥러닝 기반(ufld_hailo_node)에서 OpenCV 기반(vision_detector_node)으로 변경!
+        # vision_detector는 이제 차선 오프셋만 publish하고(가짜 장애물 신호 제거됨),
+        # 장애물 감지는 위 Hailo 노드가 전담한다.
         Node(
             package='safecar_perception',
             executable='vision_detector_node',
             name='vision_detector_node',
             output='screen',
             condition=IfCondition(LaunchConfiguration('lane_follow')),
-            # 버드아이 원근 변환 4점(640x480 기준). 트랙에서 /perception/lane_image를
-            # 보며 이 값을 조정(캘리브레이션)한다: [tl_x,tl_y, tr_x,tr_y, br_x,br_y, bl_x,bl_y]
-            parameters=[{
-                # 4점을 두 노란 선 위에 올린다: [tl, tr, br, bl] (실측 후 조정)
-                'persp_src': [210.0, 300.0, 450.0, 300.0, 635.0, 388.0, 5.0, 395.0],
-                'use_white': False,          # 노란 선만 (흰색/바닥반사 제외)
-                'follow_single_line': False, # 양쪽 노란 선 → 차로 중앙 추종
-            }],
         ),
         Node(
             package='safecar_control',
@@ -80,15 +78,6 @@ def generate_launch_description():
             name='lane_follower_node',
             output='screen',
             condition=IfCondition(LaunchConfiguration('lane_follow')),
-            # 주행 튜닝 파라미터. 트랙에서 조정(자세한 방향은 docs/RUNBOOK.md 참고).
-            parameters=[{
-                'cruise_speed': 0.12,
-                'v_min': 0.06,
-                'lookahead_dist': 0.8,
-                'steer_gain': 0.8,
-                'k_curv': 1.0,
-                'mrm_transition_time': 2.0,
-            }],
         ),
 
         # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지)
