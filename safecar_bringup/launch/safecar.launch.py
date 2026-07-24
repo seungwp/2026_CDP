@@ -35,13 +35,14 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(stella_bringup_launch),
         ),
 
-        # [수정됨] 카메라 노드
-        # 드라이버 충돌 방지를 위해 파라미터를 비워 기본 해상도로 작동시킵니다.
+        # 카메라 노드. 버드아이 원근 변환(persp_src)이 해상도에 고정이므로
+        # 해상도를 명시 고정한다(manual_drive.launch.py와 동일: 640x480, 상하반전 보정).
         Node(
             package='camera_ros',
             executable='camera_node',
             name='camera',
             output='screen',
+            parameters=[{'width': 640, 'height': 480, 'orientation': 180}],
         ),
 
         # ---------------------------------------------------------------------
@@ -64,6 +65,11 @@ def generate_launch_description():
             name='vision_detector_node',
             output='screen',
             condition=IfCondition(LaunchConfiguration('lane_follow')),
+            # 버드아이 원근 변환 4점(640x480 기준). 트랙에서 /perception/lane_image를
+            # 보며 이 값을 조정(캘리브레이션)한다: [tl_x,tl_y, tr_x,tr_y, br_x,br_y, bl_x,bl_y]
+            parameters=[{
+                'persp_src': [200.0, 280.0, 440.0, 280.0, 600.0, 470.0, 40.0, 470.0],
+            }],
         ),
         Node(
             package='safecar_control',
@@ -71,6 +77,15 @@ def generate_launch_description():
             name='lane_follower_node',
             output='screen',
             condition=IfCondition(LaunchConfiguration('lane_follow')),
+            # 주행 튜닝 파라미터. 트랙에서 조정(자세한 방향은 docs/RUNBOOK.md 참고).
+            parameters=[{
+                'cruise_speed': 0.12,
+                'v_min': 0.06,
+                'lookahead_dist': 0.8,
+                'steer_gain': 0.8,
+                'k_curv': 1.0,
+                'mrm_transition_time': 2.0,
+            }],
         ),
 
         # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지)
