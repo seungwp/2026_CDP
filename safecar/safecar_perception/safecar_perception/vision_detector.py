@@ -29,9 +29,14 @@ class VisionDetector:
         """(디버그 프레임, 차로 중심 오프셋 float 또는 None)을 반환한다."""
         height, width = frame.shape[:2]
 
-        # 1. 차선 색 마스크 (노란색 범위는 실측 테이프 기준으로 여유 있게)
+        # 1. 차선 색 마스크 (노란 테이프, 실측 기준으로 여유 있게)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
+        # 빨간 스트립용(실내): 위 한 줄 대신 아래 3줄 사용
+        # mask = cv2.bitwise_or(
+        #     cv2.inRange(hsv, np.array([0, 100, 70]), np.array([10, 255, 255])),
+        #     cv2.inRange(hsv, np.array([170, 100, 70]), np.array([180, 255, 255])),
+        # )
         if self.USE_WHITE:
             mask_white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 25, 255]))
             mask = cv2.bitwise_or(mask, mask_white)
