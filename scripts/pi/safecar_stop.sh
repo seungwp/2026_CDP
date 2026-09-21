@@ -20,9 +20,12 @@ if [ "$1" = "all" ]; then
     pkill -9 -f "ros2 lau""nch"      # 부모가 살아있으면 자식이 남는다
     for n in decision_mak""er_node vision_det""ector_node sensor_brid""ge_node \
              hailo_ros2_detec""tion_node stella_m""d_node stella_ah""rs_node \
-             ydlidar""_node camera_no""de image_serv""er; do
+             ydlidar""_node camera_no""de image_serv""er web_tele""op record_data""set; do
         pkill -9 -f "$n"             # camera_node는 SIGTERM으로 안 죽고 CSI를 물고 있다
     done
+    # Hailo 노드는 실행 중에 프로세스 이름을 'Hailo Detection App'으로 바꿔서 노드명으로는 안 잡힌다.
+    # (hailort_service는 시스템 서비스라 건드리지 않는다)
+    pkill -9 -f "Hailo Detec""tion App"
     echo "[stop] launch 전체 종료 (카메라·라이다 포함)"
 fi
 

@@ -18,8 +18,8 @@
 사용:
     # 터미널 1 — 차체 + 카메라
     ros2 launch safecar manual_drive.launch.py
-    # 터미널 2 — 조종
-    python3 ~/teleop.py
+    # 터미널 2 — 조종 (휴대폰 브라우저 http://raspberrypi.local:8000/ , 아날로그 조향)
+    python3 ~/2026_CDP/scripts/web_teleop.py
     # 터미널 3 — 녹화 (Ctrl+C로 종료)
     source ~/safecar_env.sh
     python3 ~/2026_CDP/scripts/record_dataset.py
