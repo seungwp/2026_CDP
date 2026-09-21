@@ -1,10 +1,13 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Bool, String
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import CameraInfo, LaserScan
 
 from safecar.protocol import COMMAND_NORMAL
-from safecar.control.decision_maker import DecisionMaker
+from safecar.control.decision_maker import DecisionMaker, judge_obstacle
+from safecar.control.scan_sectors import sector_min
 
 
 class DecisionMakerNode(Node):
@@ -14,6 +17,8 @@ class DecisionMakerNode(Node):
     '/cmd_vel'은 이 노드만 publish한다 — 비상 시 정지 명령이 주행 명령과 경쟁하지 않는다.
     - NORMAL: 신선한(cmd_vel_timeout 이내) /cmd_vel_raw를 10Hz로 통과시킨다.
     - 비상(EMERGENCY_BRAKE): 주행 명령을 차단하고 정지로 오버라이드.
+      장애물 판단은 Hailo(무엇인지) + 라이다(얼마나 가까운지) 퓨전이고,
+      카메라·Hailo가 끊기면 정지한다(fail-safe). → decision_maker.judge_obstacle
     - MRM_PULL_OVER: lane_follower가 자체적으로 갓길 주행 후 정차하므로 명령을 통과시킨다.
     """
 
@@ -30,8 +35,33 @@ class DecisionMakerNode(Node):
         self.declare_parameter('bio_latch', True)
         self.bio_latch = self.get_parameter('bio_latch').value
 
+        # --- 장애물 판단: 카메라(Hailo) + 라이다 퓨전 (decision_maker.judge_obstacle) ---
+        # 인지 입력이 이 시간 넘게 끊기면 정지. 카메라는 camera_info로 본다 —
+        # Hailo 노드는 마지막 판정을 타이머로 재발행해서 카메라가 죽어도 False가 계속 나온다.
+        self.declare_parameter('perception_timeout', 1.0)
+        # 벤치에서 카메라/Hailo 없이 게이트만 시험할 때 false로 끈다.
+        self.declare_parameter('require_perception', True)
+        # 라이다 퓨전. false면 예전처럼 Hailo 단독 판단.
+        self.declare_parameter('fuse_lidar', True)
+        # 전방 섹터 중심각/반각. 라이다 reversion 설정 때문에 0°가 실제 전방인지
+        # scan_check.py로 실측할 것 (mrm_side_deg 등과 같은 절차).
+        self.declare_parameter('obstacle_front_deg', 0.0)
+        self.declare_parameter('obstacle_front_half_deg', 20.0)
+        self.declare_parameter('obstacle_confirm_m', 1.0)   # Hailo 감지를 인정하는 전방 거리
+        self.declare_parameter('emergency_stop_m', 0.3)     # 종류 무관 즉시 정지 거리
+        self.declare_parameter('scan_timeout', 1.0)
+        for name in ('perception_timeout', 'require_perception', 'fuse_lidar',
+                     'obstacle_front_deg', 'obstacle_front_half_deg',
+                     'obstacle_confirm_m', 'emergency_stop_m', 'scan_timeout'):
+            setattr(self, name, self.get_parameter(name).value)
+
         self.bio_anomaly = False
-        self.obstacle_detected = False
+        self.obstacle_detected = False  # Hailo 원본 판정
+        self.last_obstacle_time = None
+        self.last_camera_time = None
+        self.last_scan = None
+        self.last_scan_time = None
+        self.obstacle_reason = ''
         self.last_command = None
 
         self.last_raw = None
@@ -41,6 +71,12 @@ class DecisionMakerNode(Node):
         self.create_subscription(Bool, '/sensors/bio_anomaly', self._on_bio_anomaly, 10)
         self.create_subscription(Bool, '/perception/obstacle_detected', self._on_obstacle_detected, 10)
         self.create_subscription(Twist, '/cmd_vel_raw', self._on_cmd_vel_raw, 10)
+        # camera_info는 영상 프레임마다 같이 오는 작은 메시지라 카메라 심장박동으로 쓴다.
+        self.create_subscription(CameraInfo, '/camera/camera_info', self._on_camera_info,
+                                 qos_profile_sensor_data)
+        # ydlidar는 SensorDataQoS(BEST_EFFORT)로 발행한다. 기본 QoS로 구독하면
+        # 호환되지 않아 메시지가 하나도 안 들어온다.
+        self.create_subscription(LaserScan, '/scan', self._on_scan, qos_profile_sensor_data)
 
         self.state_pub = self.create_publisher(String, '/control/driving_state', 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -56,13 +92,45 @@ class DecisionMakerNode(Node):
 
     def _on_obstacle_detected(self, msg):
         self.obstacle_detected = msg.data
+        self.last_obstacle_time = self.get_clock().now()
+
+    def _on_camera_info(self, _msg):
+        self.last_camera_time = self.get_clock().now()
+
+    def _on_scan(self, msg):
+        self.last_scan = msg
+        self.last_scan_time = self.get_clock().now()
+
+    def _fresh(self, t, timeout):
+        return t is not None and (self.get_clock().now() - t).nanoseconds * 1e-9 < timeout
+
+    def _judge_obstacle(self):
+        scan_fresh = self._fresh(self.last_scan_time, self.scan_timeout)
+        front_min = None
+        if scan_fresh:
+            s = self.last_scan
+            front_min = sector_min(s.ranges, s.angle_min, s.angle_increment,
+                                   self.obstacle_front_deg, self.obstacle_front_half_deg,
+                                   s.range_min, s.range_max)
+        stop, reason = judge_obstacle(
+            self.obstacle_detected,
+            camera_fresh=self._fresh(self.last_camera_time, self.perception_timeout),
+            hailo_fresh=self._fresh(self.last_obstacle_time, self.perception_timeout),
+            scan_fresh=scan_fresh, front_min=front_min,
+            confirm_m=self.obstacle_confirm_m, emergency_m=self.emergency_stop_m,
+            require_perception=self.require_perception, fuse_lidar=self.fuse_lidar)
+        if reason != self.obstacle_reason:
+            if reason:
+                (self.get_logger().warn if stop else self.get_logger().info)(f'장애물 판단: {reason}')
+            self.obstacle_reason = reason
+        return stop
 
     def _on_cmd_vel_raw(self, msg):
         self.last_raw = msg
         self.last_raw_time = self.get_clock().now()
 
     def _decide_and_publish(self):
-        command = self.decision_maker.decide(self.bio_anomaly, self.obstacle_detected)
+        command = self.decision_maker.decide(self.bio_anomaly, self._judge_obstacle())
 
         state_msg = String()
         state_msg.data = command

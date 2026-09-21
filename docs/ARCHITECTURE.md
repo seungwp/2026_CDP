@@ -1,4 +1,4 @@
-# cdp_ws — SafeCar ROS2 워크스페이스
+# 2026_CDP — SafeCar ROS2 워크스페이스
 
 STELLA N1 차체(라즈베리파이 5 + Hailo-8 AI HAT + YDLIDAR X4) 기반 안전 감독(fail-safe) 시스템.
 
@@ -10,7 +10,7 @@ NTREX의 [STELLA_N5_ROS2](https://github.com/ntrexlab/STELLA_N5_ROS2)를 기반�
 ## 패키지 구성
 
 ```
-cdp_ws/
+2026_CDP/
 ├── safecar/                   # SafeCar 안전 감독 레이어 — 이 프로젝트에서 작성한 코드 (ROS 패키지 하나)
 │   ├── launch/
 │   │   ├── safecar.launch.py      # 통합 실행 (차체 + 센서 + 인지 + 게이트). 실행 경로는 이것 하나
@@ -112,7 +112,9 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지 (= 특허의 '비상정차')"]
+    P{"카메라·Hailo<br/>살아있나?"} -- 아니오 --> E["EMERGENCY_BRAKE<br/>즉시 정지 (= 특허의 '비상정차')"]
+    P -- 예 --> A{"전방 장애물?<br/>Hailo 감지 + 라이다 1m 안<br/>또는 라이다 0.3m 안"}
+    A -- 예 --> E
     A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
     B -- 예 --> M["MRM_PULL_OVER<br/>lane_follower가 모드 결정 후 대피"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
@@ -189,7 +191,8 @@ launch 인자:
 | `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar (control) |
 | `/cmd_vel` | geometry_msgs/Twist | safecar (control, 단일 게이트, 10Hz) | stella_md |
 | `/imu/yaw` | std_msgs/Float64 | stella_ahrs | stella_md |
-| `/scan` | sensor_msgs/LaserScan | ydlidar (360°, 7.6Hz, 0.12~10m) | safecar (control, lane_follower, MRM 모드 결정) |
+| `/scan` | sensor_msgs/LaserScan | ydlidar (360°, 7.6Hz, 0.12~10m, **BEST_EFFORT**) | safecar (control): decision_maker(전방 장애물 거리), lane_follower(MRM 모드 결정) |
+| `/camera/camera_info` | sensor_msgs/CameraInfo | camera_ros (프레임마다) | safecar (control, decision_maker — 카메라 생존 감시) |
 | `/odom` | nav_msgs/Odometry | stella_md | (대시보드/로깅용) |
 
 새 주행 상태가 필요하면 `safecar/safecar/protocol.py`만 고치면 된다.

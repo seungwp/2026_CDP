@@ -111,7 +111,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지"]
+    A{"전방 장애물?<br/>Hailo + 라이다 퓨전<br/>(카메라 끊겨도 정지)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지"]
     A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
     B -- 예 --> M["MRM_PULL_OVER<br/>라이다로 모드 결정 후 대피"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]

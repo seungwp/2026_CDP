@@ -305,6 +305,16 @@ python3 scripts/scan_check.py --selftest   # ROS 없이 로직만 검증
 |---|---|---|
 | `bio_latch` | True | 운전자 이상 래치(R157: 정차 후 수동 입력 전 재출발 금지). **튜닝 중엔 False** |
 | `cmd_vel_timeout` | 1.0 | `/cmd_vel_raw` 끊김 판정(초) |
+| `require_perception` | True | 카메라(`/camera/camera_info`)·Hailo가 `perception_timeout`(1.0초) 넘게 끊기면 정지. **벤치에서 카메라 없이 게이트만 시험할 땐 False** |
+| `fuse_lidar` | True | 장애물 판단에 라이다 거리를 합침. False면 Hailo 단독(예전 동작) |
+| `obstacle_front_deg` / `obstacle_front_half_deg` | 0.0 / 20.0 | 라이다 전방 섹터. **실측 확인 필수**(3-4, 후방·우측과 같은 절차) |
+| `obstacle_confirm_m` | 1.0 | Hailo가 사람·차를 봤을 때 전방 이 거리 안에 실제로 뭔가 있어야 정지 (먼 사람 무시) |
+| `emergency_stop_m` | 0.3 | 전방에 이보다 가까우면 **종류 무관** 정지 (박스·콘처럼 Hailo가 모르는 물체) |
+
+> **장애물 판단 = 카메라 + 라이다 퓨전.** Hailo는 *무엇인지*는 알지만 거리를 모르고,
+> 라이다는 거리를 알지만 종류를 모른다. 라이다는 자기 높이의 수평면만 보므로 **시연 장애물은
+> 라이다보다 높은 것**을 쓴다. 책상 옆처럼 전방이 막힌 곳에서는 `EMERGENCY_BRAKE`에 걸려
+> 출발하지 않는다 — 로그의 `장애물 판단: ...` 사유를 보면 된다.
 
 > ⚠️ 벽 가까이에서 테스트하면 우측이 막혀 **항상 `자차로정차`** 가 나옵니다. 버그가 아닙니다.
 > MRM 모드 테스트는 트인 곳에서 하세요.

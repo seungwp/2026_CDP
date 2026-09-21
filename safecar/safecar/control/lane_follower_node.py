@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float32, String
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
@@ -105,7 +106,10 @@ class LaneFollowerNode(Node):
         self.create_subscription(Float32, '/perception/lane_offset', self._on_offset, 10)
         self.create_subscription(Float32, '/perception/lane_heading', self._on_heading, 10)
         self.create_subscription(String, '/control/driving_state', self._on_state, 10)
-        self.create_subscription(LaserScan, '/scan', self._on_scan, 10)
+        # ydlidar는 SensorDataQoS(BEST_EFFORT)로 발행한다. 예전엔 기본 QoS(RELIABLE)로
+        # 구독해서 호환이 안 됐고, /scan을 한 번도 못 받아 MRM이 항상 '/scan 없음 →
+        # 자차로정차'로 떨어지고 있었다.
+        self.create_subscription(LaserScan, '/scan', self._on_scan, qos_profile_sensor_data)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_raw', 10)
         self.create_timer(0.05, self._on_timer)  # 20Hz
 
