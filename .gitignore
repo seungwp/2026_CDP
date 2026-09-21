@@ -18,3 +18,7 @@ docs/*.pdf
 
 # graphify 지식 그래프 산출물 (로컬 분석용, 재생성 가능)
 graphify-out/
+
+# 모방학습 데이터·모델 (scripts/record_dataset.py, train_bc.py 산출물)
+dataset/
+*.onnx

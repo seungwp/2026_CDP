@@ -13,7 +13,9 @@ BC="bc_follow""er_node"
 pkill -9 -f "$LF"
 pkill -9 -f "$BC"
 # 게이트는 /cmd_vel_raw가 1초 끊기면 스스로 0을 내지만, 기다리지 않고 바로 0을 쏜다.
-ros2 topic pub -t 5 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" > /dev/null 2>&1
+# -w 0: Jazzy의 `pub -t`는 구독자(stella_md)가 나타날 때까지 기다리는 게 기본이라,
+#       이미 다 꺼진 상태에서 실행하면 여기서 영원히 멈췄다. timeout은 혹시 모를 대비.
+timeout 3 ros2 topic pub -w 0 -t 5 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" > /dev/null 2>&1
 echo "[stop] 주행 정지"
 
 if [ "$1" = "all" ]; then
