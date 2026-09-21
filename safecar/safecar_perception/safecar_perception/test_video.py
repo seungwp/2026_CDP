@@ -46,7 +46,7 @@ def main():
         frame = cv2.resize(frame, (640, 480)) 
         
         # 인지 로직 통과 (영상 처리만 단독 실행)
-        debug_frame, offset = detector.process_frame(frame)
+        debug_frame, offset, heading = detector.process_frame(frame)
         
         # 화면 출력
         cv2.imshow("Offline Vision Tuning (Press ESC to exit)", debug_frame)

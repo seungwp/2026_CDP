@@ -32,6 +32,15 @@ class LaneFollowerNode(Node):
         # 오프셋 저역통과(EMA) 계수 0~1. 클수록 이전 값 비중이 커져 조향이 부드럽다.
         # 프레임별 검출 노이즈(±0.1~0.2)가 그대로 조향에 실리는 것을 막는다.
         self.declare_parameter('offset_smoothing', 0.7)
+        # 헤딩(차선 기울기) 게인. 횡오차만 보는 P 제어는 차가 옆으로 밀린 **뒤에야**
+        # 반응하므로 곡선에서 구조적으로 밀린다. 차선이 기울어진 것을 보고 미리 꺾는
+        # 이 항이 더해지면 Stanley 제어와 같은 구조가 된다.
+        #   angular.z = -(steer_gain*오프셋 + steer_head_gain*헤딩)
+        # 0으로 두면 기존의 횡오차 전용 P 제어로 돌아간다.
+        # 실측(2026-09-21): 직선에서 헤딩≈0.02, 곡선에서 1.0까지 나온다. 게인 0.5면
+        # 곡선에서 0.5 rad/s가 추가되는데, 그날 안정 범위는 최대 0.17이었다.
+        # 그래서 0.25에서 시작하고 곡선을 보며 올린다.
+        self.declare_parameter('steer_head_gain', 0.25)
 
         # --- 갓길 대피(MRM) 프로파일 ---
         # mrm_lateral_bias: 대피 목표 횡위치. **양수 = 우측**. 0.0이면 횡이동 없이
@@ -60,6 +69,7 @@ class LaneFollowerNode(Node):
         self.steer_gain = self.get_parameter('steer_gain').value
         self.offset_timeout = self.get_parameter('offset_timeout').value
         self.offset_smoothing = self.get_parameter('offset_smoothing').value
+        self.steer_head_gain = self.get_parameter('steer_head_gain').value
         self.mrm_lateral_bias = self.get_parameter('mrm_lateral_bias').value
         self.mrm = MrmProfile(
             lateral_bias=self.mrm_lateral_bias,
@@ -77,6 +87,7 @@ class LaneFollowerNode(Node):
 
         self.last_offset = 0.0
         self.last_offset_time = None
+        self.last_heading = 0.0
         self.following = False
         self.mrm_start_time = None  # None이면 대피 중이 아님
         self.mrm_mode = None        # 이번 대피에서 선택된 MRM 모드명
@@ -84,6 +95,7 @@ class LaneFollowerNode(Node):
         self.last_scan_time = None
 
         self.create_subscription(Float32, '/perception/lane_offset', self._on_offset, 10)
+        self.create_subscription(Float32, '/perception/lane_heading', self._on_heading, 10)
         self.create_subscription(String, '/control/driving_state', self._on_state, 10)
         self.create_subscription(LaserScan, '/scan', self._on_scan, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_raw', 10)
@@ -182,6 +194,11 @@ class LaneFollowerNode(Node):
             f'MRM 모드: 우차로정차 (후방 {fmt(rear)}, 우측 {fmt(side)})')
         return '우차로정차', self.mrm_lateral_bias
 
+    def _on_heading(self, msg):
+        # 오프셋과 같은 계수로 평활한다. 둘 다 같은 검출에서 나오므로 잡음 특성이 비슷하다.
+        a = self.offset_smoothing
+        self.last_heading = a * self.last_heading + (1.0 - a) * msg.data
+
     def _on_state(self, msg):
         mrm = (msg.data == COMMAND_MRM_PULL_OVER)
         if mrm and self.mrm_start_time is None:
@@ -219,8 +236,9 @@ class LaneFollowerNode(Node):
         cmd = Twist()
         if fresh:
             cmd.linear.x = self.cruise_speed
-            # REP 103: angular.z +는 좌회전. offset +는 차로 중심이 오른쪽(우조향 필요) → 부호 반전.
-            cmd.angular.z = -self.steer_gain * self.last_offset
+            # REP 103: angular.z +는 좌회전. offset·heading 모두 +가 '우조향 필요'이므로 부호 반전.
+            cmd.angular.z = -(self.steer_gain * self.last_offset
+                              + self.steer_head_gain * self.last_heading)
         self.cmd_pub.publish(cmd)
 
     def _mrm_cmd(self, lane_fresh):
@@ -234,7 +252,8 @@ class LaneFollowerNode(Node):
             # 차선이 보이면 '차로 중심이 bias만큼 오른쪽에 있다'고 속여 그쪽으로 붙인다.
             # 차가 실제로 치우치면 measured offset이 반대로 움직여 상쇄되므로,
             # bias에 비례한 위치에서 균형을 잡는다(개루프 조향보다 안정적).
-            cmd.angular.z = -self.steer_gain * (self.last_offset + bias)
+            cmd.angular.z = -(self.steer_gain * (self.last_offset + bias)
+                              + self.steer_head_gain * self.last_heading)
         else:
             # 차로를 벗어나 차선을 잃은 상태. 마지막 오프셋을 계속 믿으면 그대로 돌아버리므로
             # 조향을 끊고 직진으로 감속만 이어간다.

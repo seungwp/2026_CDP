@@ -12,6 +12,8 @@ class VisionDetectorNode(Node):
 
     - '/perception/lane_offset' (Float32, -1~+1): 차선을 찾은 프레임에서만 publish.
       구독자(lane_follower)는 이 토픽의 신선도로 차선 유실을 판단한다.
+    - '/perception/lane_heading' (Float32): 차선이 멀어지며 기우는 정도(+는 우측으로 휨).
+      횡오차만 쓰면 곡선에서 밀리므로, 제어부가 이 값을 곡선 선제 조향에 쓴다.
     - '/perception/lane_image' (Image): 검출 선분/차로 중심이 그려진 디버그 영상 (튜닝용).
     - 장애물 인식은 이 노드가 아니라 Hailo NPU 노드가 '/perception/obstacle_detected'로 담당.
 
@@ -26,6 +28,7 @@ class VisionDetectorNode(Node):
         self.lane_visible = False
 
         self.offset_pub = self.create_publisher(Float32, '/perception/lane_offset', 10)
+        self.heading_pub = self.create_publisher(Float32, '/perception/lane_heading', 10)
         self.debug_pub = self.create_publisher(Image, '/perception/lane_image', 10)
         self.create_subscription(Image, '/camera/image_raw', self._on_image, 10)
 
@@ -36,10 +39,11 @@ class VisionDetectorNode(Node):
             self.get_logger().error(f'이미지 변환 실패: {e}')
             return
 
-        debug_frame, offset = self.detector.process_frame(frame)
+        debug_frame, offset, heading = self.detector.process_frame(frame)
 
         if offset is not None:
             self.offset_pub.publish(Float32(data=offset))
+            self.heading_pub.publish(Float32(data=heading))
         if (offset is not None) != self.lane_visible:
             self.lane_visible = offset is not None
             self.get_logger().info('차선 인식됨' if self.lane_visible else '차선 유실')

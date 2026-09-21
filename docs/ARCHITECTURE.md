@@ -81,6 +81,7 @@ flowchart TD
     DM -- "/control/driving_state" --> VIEW
     CAMNODE -- "/camera/image_raw" --> VD
     VD -- "/perception/lane_offset (-1~+1)" --> LF
+    VD -- "/perception/lane_heading (곡선 방향)" --> LF
     VD -- "/perception/lane_image<br/>(차선 디버그 영상)" --> VIEW
     LF -- "/cmd_vel_raw (자율 주행)" --> DM
     JOY -- "/cmd_vel_raw (수동 주행)" --> DM
@@ -163,6 +164,7 @@ launch 인자:
 | `/sensors/bio_anomaly` | std_msgs/Bool | **VM의 driver_monitor_node** (웹캠, `cdp-remotepc` 레포) / 시뮬은 safecar_comms | safecar_control |
 | `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
 | `/perception/lane_offset` | std_msgs/Float32 | safecar_perception (차선 찾은 프레임만, -1~+1) | safecar_control (lane_follower) |
+| `/perception/lane_heading` | std_msgs/Float32 | safecar_perception (추종 중인 차선의 기울기, +는 우측으로 휨) | safecar_control (lane_follower, 곡선 선제 조향) |
 | `/perception/lane_image` | sensor_msgs/Image | safecar_perception | (디버그/튜닝용, 차선 검출 시각화) |
 | `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar_control |
 | `/cmd_vel` | geometry_msgs/Twist | safecar_control (단일 게이트, 10Hz) | stella_md |
