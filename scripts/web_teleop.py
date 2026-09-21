@@ -31,26 +31,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>SafeCar 조종</title>
 <style>
-html,body{margin:0;height:100%;background:#111;color:#eee;font-family:sans-serif;overflow:hidden}
-#cam{display:block;width:100%;max-height:40vh;object-fit:contain;background:#000}
-#pad{position:absolute;left:0;right:0;bottom:0;top:40vh;touch-action:none;
+/* iOS Safari: 100vh는 주소창까지 포함해 아래가 잘린다 → 100dvh(실제 보이는 높이).
+   다이내믹 아일랜드·홈 바는 safe-area로 비켜 간다. 길게 누를 때 선택/돋보기/튕김도 막는다. */
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#111;color:#eee;font-family:-apple-system,sans-serif;
+  overflow:hidden;overscroll-behavior:none;position:fixed;inset:0}
+body{display:flex;flex-direction:column;height:100dvh;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#cam{display:block;width:100%;max-height:35dvh;object-fit:contain;background:#000;flex:none}
+#pad{position:relative;flex:1;min-height:0;touch-action:none;border-radius:12px;margin:6px;
      background:linear-gradient(90deg,#1c2a3a,#222 50%,#1c2a3a)}
 #mid{position:absolute;left:50%;top:0;bottom:0;border-left:2px dashed #555}
-#dot{position:absolute;top:50%;width:56px;height:56px;margin:-28px;border-radius:50%;
-     background:#555;left:50%;transition:background .1s}
-#info{position:absolute;top:8px;width:100%;text-align:center;font-size:18px;pointer-events:none}
+#dot{position:absolute;top:50%;width:64px;height:64px;margin:-32px;border-radius:50%;
+     background:#555;left:50%;transition:background .1s;pointer-events:none}
+#info{position:absolute;top:10px;width:100%;text-align:center;font-size:18px;pointer-events:none}
 </style></head><body>
-<img id="cam" src="" alt="">
+<img id="cam" src="" alt="" draggable="false">
 <div id="pad"><div id="mid"></div><div id="dot"></div>
 <div id="info">누르고 있으면 전진 · 좌우로 조향 · 떼면 정지</div></div>
 <script>
 const pad=document.getElementById('pad'),dot=document.getElementById('dot'),info=document.getElementById('info');
 const cam=document.getElementById('cam');
 cam.src='http://'+location.hostname+':{cam_port}/stream';
-cam.onerror=()=>{cam.style.display='none';pad.style.top='0'};
+cam.onerror=()=>{cam.style.display='none'};
+document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});  // 튕김·스크롤 방지
 let steer=0,down=false,timer=null;
 function send(go){fetch('/cmd?go='+(go?1:0)+'&steer='+steer.toFixed(3)).catch(()=>{});}
 function pos(e){const r=pad.getBoundingClientRect();
@@ -63,6 +72,10 @@ function up(){if(!down)return;down=false;clearInterval(timer);steer=0;send(false
   dot.style.left='50%';dot.style.background='#555';info.textContent='정지';}
 pad.addEventListener('pointerup',up);pad.addEventListener('pointercancel',up);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)up();});
+// 손 뗌 이벤트가 누락돼도 멈추게: 알림·제어 센터로 포커스를 잃거나 페이지를 떠나면 정지
+window.addEventListener('blur',up);window.addEventListener('pagehide',up);
+document.addEventListener('touchend',e=>{if(e.touches.length===0)up();});
+document.addEventListener('touchcancel',up);
 </script></body></html>"""
 
 
