@@ -53,7 +53,7 @@ def generate_launch_description():
 
         # Hailo-8 NPU 객체 인식. '/detection_image'(디버그용 박스 영상)와
         # '/perception/obstacle_detected'(장애물 유무, 제어부 입력) publish.
-        # 선행 조건: hailo-rpi5-examples + install_ros2.sh 설치 (Pi에 설치 완료됨).
+        # 선행 조건: hailo-rpi5-examples(hailo_apps_infra) 설치 (Pi에 설치 완료됨).
         # remap 필요: 노드는 상대 토픽 'image_raw'를 구독하므로 camera_ros의
         # '/camera/image_raw'로 연결해줘야 한다.
         Node(

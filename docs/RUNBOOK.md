@@ -141,13 +141,10 @@ ros2 launch stella_hailo_rpi5_ros2_examples hailo_ros2_detection_launch.py  # Ha
 | 패키지 | 실행 노드 | 역할 |
 |---|---|---|
 | `safecar_perception` | `vision_detector_node` | OpenCV 차선 인식 → `/perception/lane_offset` |
-| `safecar_perception` | `ufld_hailo_node` | (대안) UFLD 딥러닝 차선 인식 — HEF 필요 |
-| `safecar_perception` | `mock_obstacle_node` | 장애물 없음(False) 상시 발행 — Hailo 대체 |
 | `safecar_control` | `lane_follower_node` | 오프셋 → 조향(`/cmd_vel_raw`) |
 | `safecar_control` | `decision_maker_node` | 안전 게이트(`/cmd_vel_raw`→`/cmd_vel`) |
 | `safecar_comms` | `sensor_bridge_node` | 생체신호 브릿지(`/sensors/bio_anomaly`) |
 | `stella_hailo_rpi5_ros2_examples` | `hailo_ros2_detection_node` | Hailo NPU 객체 인식 |
-| `stella_teleop_bluetooth` | `stella_teleop_bluetooth_node` | 블루투스 조이패드 teleop |
 
 예시:
 

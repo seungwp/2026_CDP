@@ -93,13 +93,17 @@ def _self_check():
 def main():
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import LaserScan
 
     class ScanCheck(Node):
         def __init__(self):
             super().__init__('scan_check')
             self.msg = None
-            self.create_subscription(LaserScan, '/scan', self._on_scan, 10)
+            # ydlidar는 SensorDataQoS(BEST_EFFORT)로 발행한다. 기본 QoS(RELIABLE)로
+            # 구독하면 'incompatible QoS'가 뜨고 메시지가 **하나도** 안 들어온다.
+            self.create_subscription(LaserScan, '/scan', self._on_scan,
+                                     qos_profile_sensor_data)
             self.create_timer(1.0, self._report)
             self.get_logger().info('/scan 대기 중...')
 

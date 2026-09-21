@@ -18,13 +18,11 @@ cdp_ws/
 ├── stella_bringup/            # 차체 기본 구동 launch (단순화됨: 조건 분기 없음)
 ├── stella_description/        # URDF (기본 variant만 유지)
 ├── stella_hailo_rpi5_ros2_examples/  # Hailo-8 + Pi5 객체인식 예제 (NTREX 원본, 유지)
-├── stella_teleop_bluetooth/   # 블루투스 조이스틱 원격조종 (유지, 평상시 주행용)
 ├── safecar/                   # SafeCar 안전 감독 레이어 (직접 추가)
 │   ├── safecar_msgs/          # 공용 명령어 상수
 │   ├── safecar_perception/    # 인지부 — 차선/장애물 인식
 │   ├── safecar_control/       # 제어부 — 상황 판단, cmd_vel 개입
-│   ├── safecar_comms/         # 통신부 — 외부 운전자 감시 신호 중계(+시뮬)
-│   └── safecar_dashboard/     # 대시보드 (방식 미정, 자리만)
+│   └── safecar_comms/         # 통신부 — 외부 운전자 감시 신호 중계(+시뮬)
 └── safecar_bringup/           # 통합 launch (stella_bringup + camera_ros + safecar 노드)
 ```
 
@@ -124,6 +122,21 @@ flowchart LR
 - `sllidar_ros2`, `sllidar2_ros2` — SLAMTEC RPLIDAR용, YDLIDAR X4만 쓰므로 미사용
 - `stella_bringup`의 RealSense/웹캠 launch 분기, `robot_launch_param.yaml` — 조건 없는 단일 구성으로 대체
 - `stella_description`의 RealSense/웹캠 URDF variant
+
+### 2026-09-21 정리 (시연 경로 기준)
+
+시연에서 실행되지 않는 것을 제거해 작업트리를 112MB → 2.8MB, 추적 파일 782 → 157개로 줄였다.
+삭제한 것은 git 히스토리에 남아 있으므로 필요하면 복구할 수 있다.
+
+- `test_data/`(mp4 78MB) — 레포 어디서도 참조하지 않던 녹화 영상
+- `stella_description`의 STL 메시(16.7MB)·rviz 설정 — RViz 시각화 전용.
+  `robot_state_publisher`는 URDF의 mesh 경로를 문자열로만 다루므로 런치는 그대로 동작한다
+- `safecar_perception/models/*.hef`(8.2MB) — 어떤 코드도 참조하지 않음.
+  Hailo 노드는 `hailo_apps_infra`가 설치한 리소스에서 모델을 가져온다
+- `ydlidar_ros/sdk/doc`·`sdk/image`(7MB) — 벤더 Doxygen 산출물. 빌드에 포함되지 않음
+- `safecar_dashboard/` — 구현이 없는 빈 패키지였다(담당: 성현서)
+- `stella_teleop_bluetooth/` — 어떤 launch도 참조하지 않음. 수동주행은 Pi의 `~/teleop.py` 사용
+- `ufld_hailo_node`(모델이 0바이트라 실행 불가), `mock_obstacle_node`, `test_video.py`
 
 ## 외부 의존성 (이 워크스페이스에 없음, 별도 설치 필요)
 

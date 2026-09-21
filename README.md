@@ -30,7 +30,7 @@ STELLA N1 차체 · Raspberry Pi 5 · Hailo-8 NPU 기반 ROS 2 자율주행 플�
 | 🧭 제어 · 통합 | 김승제 | `safecar_control`, `safecar_bringup` |
 | 👁️ 인지 | 진다혜 | `safecar_perception` |
 | 📡 통신 | 정수영 | `safecar_comms` |
-| 📊 대시보드 | 성현서 | `safecar_dashboard` |
+| 📊 대시보드 | 성현서 | (미구현 — 패키지 정리됨) |
 
 
 ---
@@ -126,7 +126,6 @@ flowchart LR
 - **NTREX STELLA_N5_ROS2** — 차체 베이스 플랫폼 · https://github.com/ntrexlab/STELLA_N5_ROS2 (출처/변경 이력: [`NOTICE.md`](./NOTICE.md))
 - **Hailo hailo-rpi5-examples** — Hailo-8 NPU 추론 예제 · https://github.com/hailo-ai/hailo-rpi5-examples
 - **camera_ros** — Raspberry Pi CSI 카메라 ROS 2 드라이버 · https://github.com/christianrauch/camera_ros
-- **Ultra-Fast-Lane-Detection (UFLD)** — 딥러닝 차선 인식 (실험) · https://github.com/cfzd/Ultra-Fast-Lane-Detection
 - **YOLOv8 (Ultralytics)** — 객체 인식 모델 · https://github.com/ultralytics/ultralytics
 - **ROS 2 Jazzy 공식 문서** · https://docs.ros.org/en/jazzy/
 

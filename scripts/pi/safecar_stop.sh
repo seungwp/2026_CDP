@@ -22,6 +22,8 @@ if [ "$1" = "all" ]; then
     pkill -9 -f camera_no""de          # SIGTERM으로 안 죽고 CSI를 물고 있어서 -9 필수
     pkill -f image_serv""er
     pkill -f stella_m""d
+    pkill -9 -f ydlidar""_node        # 라이다 모터도 같이 멈춘다
+    pkill -9 -f "ros2 launch ydlida""r"
     echo "[stop] 카메라/인지/모터드라이버까지 전부 종료"
 fi
 

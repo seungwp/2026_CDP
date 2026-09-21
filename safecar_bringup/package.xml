@@ -9,6 +9,8 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>stella_bringup</exec_depend>
+  <exec_depend>stella_hailo_rpi5_ros2_examples</exec_depend>
   <exec_depend>safecar_perception</exec_depend>
   <exec_depend>safecar_control</exec_depend>
   <exec_depend>safecar_comms</exec_depend>

@@ -11,6 +11,9 @@ start() {  # start <로그이름> <명령...>
 
 start md.log  ros2 launch stella_md stella_md_launch.py
 sleep 6
+# 라이다: MRM 갓길 판정이 /scan의 후방·우측 섹터를 본다. 없으면 자차로정차로 폴백된다.
+start lidar.log ros2 launch ydlidar ydlidar_launch.py
+sleep 3
 start cam.log ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p orientation:=180
 sleep 8
 start vd.log  ros2 run safecar_perception vision_detector_node
@@ -23,6 +26,7 @@ sleep 4
 echo "=== 실행 상태 ==="
 timeout 8 ros2 topic hz /perception/lane_offset 2>&1 | tail -1
 echo "차선 오프셋: $(timeout 6 ros2 topic echo /perception/lane_offset --once --field data 2>/dev/null | head -1)"
+echo "라이다: $(timeout 6 ros2 topic hz /scan 2>&1 | tail -1)"
 echo
 echo "영상:  http://raspberrypi.local:8080/   (차선 검출 결과)"
 echo "       http://raspberrypi.local:8081/   (원본)"

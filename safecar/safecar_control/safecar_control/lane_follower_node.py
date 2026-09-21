@@ -49,7 +49,11 @@ class LaneFollowerNode(Node):
         # 폐쇄 트랙'이라는 ODD 안에서만 쓴다. ODD를 벗어나면 0.0으로 되돌릴 것.
         self.declare_parameter('mrm_lateral_bias', 0.5)
         self.declare_parameter('mrm_transition_time', 3.0)  # 갓길로 붙는 시간(초)
-        self.declare_parameter('mrm_speed_ratio', 0.6)      # 대피 중 속도 비율
+        # 대피 중 속도 비율. **하한이 하드웨어로 정해져 있다** — 실측(2026-09-21) 결과
+        # 0.12 m/s 아래로는 정지 마찰을 못 이겨 차가 아예 안 움직인다.
+        # cruise 0.15에 ratio 0.6이면 이동 구간에서 0.09까지 떨어져 갓길에 닿기 전에
+        # 멈춰버린다. 0.85면 이동 내내 0.1275 이상을 유지한다.
+        self.declare_parameter('mrm_speed_ratio', 0.85)
         self.declare_parameter('mrm_stop_duration', 2.0)    # 붙은 뒤 정지까지(초)
 
         # --- 라이다(/scan)로 갓길 대피 가능 여부 판단 ---

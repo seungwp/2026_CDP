@@ -1,6 +1,3 @@
-import os
-from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = 'safecar_perception'
@@ -12,7 +9,6 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'models'), glob('models/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,8 +20,6 @@ setup(
     entry_points={
         'console_scripts': [
             'vision_detector_node = safecar_perception.vision_detector_node:main',
-            'mock_obstacle_node = safecar_perception.mock_obstacle_node:main',
-            'ufld_hailo_node = safecar_perception.ufld_hailo_node:main',
         ],
     },
 )
