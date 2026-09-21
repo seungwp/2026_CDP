@@ -2,7 +2,7 @@
 # 운전자 상태 감시(DMS) 구현 스펙
 
 구현 담당: 정수영 · 레포: `cdp-remotepc` · 실행: 노트북 우분투 VM
-출력 계약: [`safecar/safecar_comms/README.md`](../safecar/safecar_comms/README.md)
+출력 계약: [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md)
 
 이 문서는 **"자동차 업계가 실제로 쓰는 방식"** 을 축소 구현하기 위한 스펙이다.
 흔한 오픈소스 졸음감지(고정 임계값 + 연속 프레임 카운트)와 무엇이 다른지가 이 프로젝트의 차별점이므로,

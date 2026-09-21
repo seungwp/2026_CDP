@@ -11,20 +11,27 @@ NTREX의 [STELLA_N5_ROS2](https://github.com/ntrexlab/STELLA_N5_ROS2)를 기반�
 
 ```
 cdp_ws/
-├── stella/                    # 차체 하드웨어 드라이버 (NTREX 원본, 유지)
-│   ├── stella_md/             # 모터드라이버 — '/cmd_vel' 구독, '/odom' publish
-│   ├── stella_ahrs/           # IMU/AHRS — '/imu/yaw' publish
-│   └── ydlidar_ros/           # YDLIDAR X4 — '/scan' publish
-├── stella_bringup/            # 차체 기본 구동 launch (단순화됨: 조건 분기 없음)
-├── stella_description/        # URDF (기본 variant만 유지)
-├── stella_hailo_rpi5_ros2_examples/  # Hailo-8 + Pi5 객체인식 예제 (NTREX 원본, 유지)
-├── safecar/                   # SafeCar 안전 감독 레이어 (직접 추가)
-│   ├── safecar_msgs/          # 공용 명령어 상수
-│   ├── safecar_perception/    # 인지부 — 차선/장애물 인식
-│   ├── safecar_control/       # 제어부 — 상황 판단, cmd_vel 개입
-│   └── safecar_comms/         # 통신부 — 외부 운전자 감시 신호 중계(+시뮬)
-└── safecar_bringup/           # 통합 launch (stella_bringup + camera_ros + safecar 노드)
+├── safecar/                   # SafeCar 안전 감독 레이어 — 이 프로젝트에서 작성한 코드 (ROS 패키지 하나)
+│   ├── launch/
+│   │   ├── safecar.launch.py      # 통합 실행 (차체 + 센서 + 인지 + 게이트). 실행 경로는 이것 하나
+│   │   └── manual_drive.launch.py # 수동 주행·촬영용 (차체 + 카메라만)
+│   └── safecar/
+│       ├── protocol.py            # 공용 주행 상태 상수 (NORMAL / EMERGENCY_BRAKE / MRM_PULL_OVER)
+│       ├── perception/            # 인지 (진다혜) — 차선 인식
+│       ├── control/               # 제어 (김승제) — 안전 게이트, 차선 추종, 갓길 대피(MRM)
+│       └── comms/                 # 통신 (정수영) — 운전자 이상 신호 브릿지(+시뮬)
+├── stella/                    # 벤더 코드 (NTREX STELLA 기반, 거의 수정하지 않음)
+│   ├── stella_md/                 # 모터드라이버 — '/cmd_vel' 구독, '/odom' publish, 0.5s 워치독
+│   ├── stella_ahrs/               # IMU/AHRS — '/imu/yaw' publish
+│   ├── ydlidar_ros/               # YDLIDAR X4 — '/scan' publish (패키지명 ydlidar)
+│   ├── stella_bringup/            # 차체 구동부 launch (md + ahrs + lidar)
+│   └── stella_hailo_rpi5_ros2_examples/  # Hailo-8 NPU 객체 인식
+├── scripts/                   # Pi 운영 스크립트(pi/) + 진단 도구(scan_check, image_server)
+└── docs/
 ```
+
+> 예전에는 담당자별로 ROS 패키지를 나눴다(코드 약 1천 줄에 패키지 5개, 설정 파일 25개).
+> 2026-09-21에 `safecar` 패키지 하나로 합치고 담당 영역은 하위 폴더로 구분했다.
 
 ## 레포 경계 (누가 어디서 작업하나)
 
@@ -34,7 +41,7 @@ cdp_ws/
 | 노트북 우분투 VM | **`cdp-remotepc`** | 정수영 | 웹캠 운전자 이상 감지(`driver_monitor_node`) |
 
 두 레포의 접점은 **`/sensors/bio_anomaly` 토픽 하나뿐**이다(같은 `ROS_DOMAIN_ID=52`면 DDS가 자동 연결).
-규약·latch 요구사항·독립 테스트 방법은 [`safecar/safecar_comms/README.md`](../safecar/safecar_comms/README.md) 참고.
+규약·latch 요구사항·독립 테스트 방법은 [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md) 참고.
 
 **주행은 Pi 단독으로 완결됩니다** — 자율주행 루프에 외부 기계로 나가는 토픽이 없어, 네트워크가 끊겨도 주행은 계속됩니다. VM이 필요한 건 웹캠 운전자 감지뿐이고, 개발·점검은 SSH + `scripts/`의 진단 도구로 합니다(카메라 영상은 브라우저, 라이다는 텍스트 출력). rqt/rviz를 쓰고 싶을 때만 VM을 켜면 됩니다.
 
@@ -144,7 +151,7 @@ flowchart LR
   https://github.com/christianrauch/camera_ros 를 `src/`에 clone 후 빌드.
 - **Hailo 객체 인식 런타임** — `stella_hailo_rpi5_ros2_examples/ReadMe.md` 안내대로
   [hailo-rpi5-examples](https://github.com/hailo-ai/hailo-rpi5-examples) 저장소를 별도로 설치해야
-  `stella_hailo_rpi5_ros2_examples` 패키지가 동작한다. (현재 `safecar_perception`은 이것 없이도
+  `stella_hailo_rpi5_ros2_examples` 패키지가 동작한다. (`safecar`의 차선 인식은 이것 없이도
   OpenCV 차선 인식 + 임시 장애물 인식 로직만으로 동작한다.)
 
 ## 빌드 & 실행
@@ -154,10 +161,10 @@ colcon build
 source install/setup.bash
 
 # 기본(수동/teleop 주행, 이상신호 시뮬레이션 꺼짐)
-ros2 launch safecar_bringup safecar.launch.py
+ros2 launch safecar safecar.launch.py
 
 # 차선 추종 자율주행 (시뮬레이션 끔 — 트랙 테스트용)
-ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
+ros2 launch safecar safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
 ```
 
 launch 인자:
@@ -172,17 +179,17 @@ launch 인자:
 | 토픽 | 타입 | Publisher | Subscriber |
 |---|---|---|---|
 | `/camera/image_raw` | sensor_msgs/Image | camera_ros (640x480) | stella_hailo_rpi5_ros2_examples |
-| `/perception/obstacle_detected` | std_msgs/Bool | stella_hailo_rpi5_ros2_examples (Hailo-8 실추론) | safecar_control |
+| `/perception/obstacle_detected` | std_msgs/Bool | stella_hailo_rpi5_ros2_examples (Hailo-8 실추론) | safecar (control) |
 | `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
-| `/sensors/bio_anomaly` | std_msgs/Bool | **VM의 driver_monitor_node** (웹캠, `cdp-remotepc` 레포) / 시뮬은 safecar_comms | safecar_control |
-| `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
-| `/perception/lane_offset` | std_msgs/Float32 | safecar_perception (차선 찾은 프레임만, -1~+1) | safecar_control (lane_follower) |
-| `/perception/lane_heading` | std_msgs/Float32 | safecar_perception (추종 중인 차선의 기울기, +는 우측으로 휨) | safecar_control (lane_follower, 곡선 선제 조향) |
-| `/perception/lane_image` | sensor_msgs/Image | safecar_perception | (디버그/튜닝용, 차선 검출 시각화) |
-| `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar_control |
-| `/cmd_vel` | geometry_msgs/Twist | safecar_control (단일 게이트, 10Hz) | stella_md |
+| `/sensors/bio_anomaly` | std_msgs/Bool | **VM의 driver_monitor_node** (웹캠, `cdp-remotepc` 레포) / 시뮬은 safecar (comms) | safecar (control) |
+| `/control/driving_state` | std_msgs/String | safecar (control) | (대시보드/로깅용) |
+| `/perception/lane_offset` | std_msgs/Float32 | safecar (perception, 차선 찾은 프레임만, -1~+1) | safecar (control, lane_follower) |
+| `/perception/lane_heading` | std_msgs/Float32 | safecar (perception, 추종 중인 차선의 기울기, +는 우측으로 휨) | safecar (control, lane_follower, 곡선 선제 조향) |
+| `/perception/lane_image` | sensor_msgs/Image | safecar (perception) | (디버그/튜닝용, 차선 검출 시각화) |
+| `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar (control) |
+| `/cmd_vel` | geometry_msgs/Twist | safecar (control, 단일 게이트, 10Hz) | stella_md |
 | `/imu/yaw` | std_msgs/Float64 | stella_ahrs | stella_md |
-| `/scan` | sensor_msgs/LaserScan | ydlidar (360°, 7.6Hz, 0.12~10m) | safecar_control (lane_follower, MRM 모드 결정) |
+| `/scan` | sensor_msgs/LaserScan | ydlidar (360°, 7.6Hz, 0.12~10m) | safecar (control, lane_follower, MRM 모드 결정) |
 | `/odom` | nav_msgs/Odometry | stella_md | (대시보드/로깅용) |
 
-새 명령어 값이나 상태가 필요하면 `safecar/safecar_msgs/safecar_msgs/command_protocol.py`만 고치면 된다.
+새 주행 상태가 필요하면 `safecar/safecar/protocol.py`만 고치면 된다.

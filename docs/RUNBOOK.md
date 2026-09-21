@@ -20,7 +20,7 @@ Pi는 `--symlink-install`을 쓰지 않으므로, **파이썬 노드를 고쳐�
 cd ~/2026_CDP
 
 # 변경한 패키지만 빌드 (빠름)
-colcon build --packages-select stella_md safecar_control
+colcon build --packages-select safecar stella_md
 source install/setup.bash
 ```
 
@@ -82,7 +82,7 @@ Pi 홈에 있는 스크립트 4개로 대부분의 작업이 됩니다(원본은
 차선 인식(`vision_detector`) + 차선 추종(`lane_follower`) + 안전 게이트(`decision_maker`) + 센서 브릿지 + 카메라 + Hailo를 **한 번에** 띄웁니다.
 
 ```bash
-ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
+ros2 launch safecar safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
 ```
 
 launch 인자:
@@ -103,7 +103,7 @@ launch 인자:
 안전 게이트·Hailo·차선 노드 없이 **차체 구동부 + 카메라만** 띄웁니다. 게이트가 없으므로 teleop은 `/cmd_vel`로 직접 publish합니다(타임아웃 스톱-고 현상 없음).
 
 ```bash
-ros2 launch safecar_bringup manual_drive.launch.py
+ros2 launch safecar manual_drive.launch.py
 # 터미널 2: python3 ~/teleop.py     (/cmd_vel 로 직접 조종)
 # 터미널 3: ~/record_drive.sh       (주행 영상 녹화)
 ```
@@ -128,7 +128,6 @@ ros2 launch stella_bringup robot.launch.py
 ros2 launch stella_md      stella_md_launch.py             # 모터드라이버만 (/cmd_vel 구독, /odom 발행)
 ros2 launch stella_ahrs    stella_ahrs_launch.py           # IMU/AHRS만 (imu/yaw 발행)
 ros2 launch ydlidar        ydlidar_launch.py               # YDLIDAR X4만 (/scan 발행)
-ros2 launch stella_bringup stella_state_publisher.launch.py # robot_state_publisher (URDF/TF)
 ros2 launch stella_hailo_rpi5_ros2_examples hailo_ros2_detection_launch.py  # Hailo 객체인식만
 ```
 
@@ -140,21 +139,21 @@ ros2 launch stella_hailo_rpi5_ros2_examples hailo_ros2_detection_launch.py  # Ha
 
 | 패키지 | 실행 노드 | 역할 |
 |---|---|---|
-| `safecar_perception` | `vision_detector_node` | OpenCV 차선 인식 → `/perception/lane_offset` |
-| `safecar_control` | `lane_follower_node` | 오프셋 → 조향(`/cmd_vel_raw`) |
-| `safecar_control` | `decision_maker_node` | 안전 게이트(`/cmd_vel_raw`→`/cmd_vel`) |
-| `safecar_comms` | `sensor_bridge_node` | 생체신호 브릿지(`/sensors/bio_anomaly`) |
+| `safecar` | `vision_detector_node` | OpenCV 차선 인식 → `/perception/lane_offset` |
+| `safecar` | `lane_follower_node` | 오프셋 → 조향(`/cmd_vel_raw`) |
+| `safecar` | `decision_maker_node` | 안전 게이트(`/cmd_vel_raw`→`/cmd_vel`) |
+| `safecar` | `sensor_bridge_node` | 생체신호 브릿지(`/sensors/bio_anomaly`) |
 | `stella_hailo_rpi5_ros2_examples` | `hailo_ros2_detection_node` | Hailo NPU 객체 인식 |
 
 예시:
 
 ```bash
 # 차선 인식만 단독 실행 + 오프셋 확인
-ros2 run safecar_perception vision_detector_node
+ros2 run safecar vision_detector_node
 ros2 topic echo /perception/lane_offset
 
 # 차선 추종 노드를 파라미터 오버라이드로 실행
-ros2 run safecar_control lane_follower_node --ros-args -p steer_gain:=0.7 -p cruise_speed:=0.1
+ros2 run safecar lane_follower_node --ros-args -p steer_gain:=0.7 -p cruise_speed:=0.1
 ```
 
 > 참고: 노드는 `__init__`에서 파라미터를 한 번만 읽으므로, 실행 중 `ros2 param set`은 즉시 반영되지 않습니다. 값 바꾸려면 재실행(또는 재빌드)하세요.
@@ -243,7 +242,7 @@ python3 scripts/scan_check.py --selftest   # ROS 없이 로직만 검증
 
 ### 3-1. 인지 상수 (코드 상수 — 수정 시 재빌드 필요)
 
-`safecar_perception/vision_detector.py`. **2026-09-21 실외 아스팔트 트랙(흰 점선) 실측값**입니다.
+`safecar/safecar/perception/vision_detector.py`. **2026-09-21 실외 아스팔트 트랙(흰 점선) 실측값**입니다.
 조명·노면·카메라 각도가 바뀌면 다시 잡아야 합니다.
 
 | 상수 | 값 | 근거 / 조정 방향 |
@@ -371,25 +370,25 @@ git clone https://github.com/seungwp/2026_CDP.git 2026_CDP_new
 
 ```bash
 # 1) 로컬 수정 파일 백업
-cp safecar/safecar_control/safecar_control/lane_follower_node.py ~/lane_follower_pi_local.py
+cp safecar/safecar/control/lane_follower_node.py ~/lane_follower_pi_local.py
 
 # 2) Pi에서 뭘 바꿨는지 확인
-git diff safecar/safecar_control/safecar_control/lane_follower_node.py
+git diff safecar/safecar/control/lane_follower_node.py
 
 # 3) 원격 버전 채택(로컬 수정 버림) 후 pull  ※ 백업이 있으니 안전
-git checkout -- safecar/safecar_control/safecar_control/lane_follower_node.py
+git checkout -- safecar/safecar/control/lane_follower_node.py
 git pull
 
 # 4) 트랙에서 검증한 튜닝값만 재적용 (예시)
 sed -i "s/'steer_d_gain', 0.3/'steer_d_gain', 0.5/" \
-  safecar/safecar_control/safecar_control/lane_follower_node.py
+  safecar/safecar/control/lane_follower_node.py
 sed -i "s/'offset_smoothing', 0.8)/'offset_smoothing', 0.85)/" \
-  safecar/safecar_control/safecar_control/lane_follower_node.py
+  safecar/safecar/control/lane_follower_node.py
 
 # 5) 확인 후 재빌드
 grep -nE "steer_gain|steer_d_gain|steer_deadband|max_steer|offset_smoothing" \
-  safecar/safecar_control/safecar_control/lane_follower_node.py
-colcon build --packages-select safecar_control && source install/setup.bash
+  safecar/safecar/control/lane_follower_node.py
+colcon build --packages-select safecar && source install/setup.bash
 ```
 
 > Pi에서 반복적으로 로컬 수정 → pull 충돌이 나는 것을 막으려면, **검증된 튜닝값을 PC 저장소 기본값에 반영해 commit/push** 해두는 게 좋습니다. 그러면 Pi는 로컬 수정 없이 깨끗하게 pull됩니다.

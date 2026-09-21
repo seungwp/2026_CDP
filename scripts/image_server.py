@@ -11,7 +11,7 @@
 
 사용:
     # 터미널 1 — 카메라(+차선인식)를 먼저 띄운다
-    ros2 launch safecar_bringup safecar.launch.py lane_follow:=true
+    ros2 launch safecar safecar.launch.py lane_follow:=true
 
     # 터미널 2 — 스트리머 (환경 소싱은 record_drive.sh와 동일)
     python3 scripts/image_server.py                            # 기본: /perception/lane_image

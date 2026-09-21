@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# 주행 준비: 차체 + 카메라 + 차선인식 + 안전게이트 + 영상 스트리머를 띄운다.
-# 주행 자체는 시작하지 않는다 (safecar_drive.sh 로 시작).
+# 주행 준비: 통합 launch(safecar.launch.py)로 차체·센서·인지·안전게이트를 전부 띄우고,
+# 노트북 브라우저로 볼 수 있게 영상 스트리머를 붙인다. **주행은 시작하지 않는다**
+# (차선 추종은 safecar_drive.sh로 따로 켠다).
+#
+# 실행 경로는 launch 하나다. 예전에는 이 스크립트가 노드를 하나씩 띄웠는데, 그러다
+# launch와 켜지는 노드가 달라져(Hailo·IMU·sensor_bridge 누락) 스크립트로 달리면
+# 장애물 정지가 없는 채로 주행했다.
+#
+#   ~/safecar_start.sh                    # 기본
+#   ~/safecar_start.sh anomaly_delay_sec:=10.0   # 웹캠 없이 MRM 데모(10초 뒤 이상 발생)
 source /home/pi/safecar_env.sh
-cd /home/pi/runlog 2>/dev/null || { mkdir -p /home/pi/runlog; cd /home/pi/runlog; }
+mkdir -p /home/pi/runlog && cd /home/pi/runlog
 
 start() {  # start <로그이름> <명령...>
     local log="$1"; shift
     setsid nohup "$@" > "$log" 2>&1 < /dev/null &
 }
 
-start md.log  ros2 launch stella_md stella_md_launch.py
-sleep 6
-# 라이다: MRM 갓길 판정이 /scan의 후방·우측 섹터를 본다. 없으면 자차로정차로 폴백된다.
-start lidar.log ros2 launch ydlidar ydlidar_launch.py
-sleep 3
-start cam.log ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p orientation:=180
-sleep 8
-start vd.log  ros2 run safecar_perception vision_detector_node
-sleep 3
-start dm.log  ros2 run safecar_control decision_maker_node
-start img.log python3 /home/pi/image_server.py --topic /perception/lane_image
+start launch.log ros2 launch safecar safecar.launch.py "$@"
+start img.log    python3 /home/pi/image_server.py --topic /perception/lane_image
 start imgraw.log python3 /home/pi/image_server.py --topic /camera/image_raw --port 8081
-sleep 4
+sleep 20
 
 echo "=== 실행 상태 ==="
-timeout 8 ros2 topic hz /perception/lane_offset 2>&1 | tail -1
-echo "차선 오프셋: $(timeout 6 ros2 topic echo /perception/lane_offset --once --field data 2>/dev/null | head -1)"
-echo "라이다: $(timeout 6 ros2 topic hz /scan 2>&1 | tail -1)"
+for t in /scan /camera/image_raw /perception/lane_offset /perception/obstacle_detected /control/driving_state; do
+    printf "%-32s " "$t"
+    timeout 6 ros2 topic hz "$t" 2>&1 | grep -m1 "average rate" || echo "(발행 없음)"
+done
 echo
 echo "영상:  http://raspberrypi.local:8080/   (차선 검출 결과)"
 echo "       http://raspberrypi.local:8081/   (원본)"
 echo "주행 시작:  ~/safecar_drive.sh"
-echo "정지:       ~/safecar_stop.sh"
+echo "정지:       ~/safecar_stop.sh        (주행만)  /  ~/safecar_stop.sh all  (전부)"

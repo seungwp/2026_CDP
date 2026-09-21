@@ -27,9 +27,9 @@ STELLA N1 차체 · Raspberry Pi 5 · Hailo-8 NPU 기반 ROS 2 자율주행 플�
 
 | 파트 | 담당 | 주요 패키지 |
 |---|---|---|
-| 🧭 제어 · 통합 | 김승제 | `safecar_control`, `safecar_bringup` |
-| 👁️ 인지 | 진다혜 | `safecar_perception` |
-| 📡 통신 | 정수영 | `safecar_comms` |
+| 🧭 제어 · 통합 | 김승제 | `safecar/safecar/control/`, `safecar/launch/` |
+| 👁️ 인지 | 진다혜 | `safecar/safecar/perception/` |
+| 📡 통신 | 정수영 | `safecar/safecar/comms/` + VM 웹캠 노드(`cdp-remotepc`) |
 | 📊 대시보드 | 성현서 | (미구현 — 패키지 정리됨) |
 
 
