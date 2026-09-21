@@ -17,14 +17,17 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # 운전자 이상신호 시뮬레이션 발동 시각(초).
-        # 실제 감지는 노트북 VM의 driver_monitor_node(cdp-remotepc 레포, 정수영)가 담당하므로
-        # 기본값은 비활성(-1.0)이다 — 켜두면 같은 토픽을 두 곳에서 발행해 신호가 싸운다.
-        # VM 없이 Pi 단독으로 갓길 대피(MRM)를 데모할 때만 켠다:
-        #   ros2 launch safecar safecar.launch.py lane_follow:=true anomaly_delay_sec:=10.0
+        # 운전자 이상신호 입력원.
+        #   udp (기본): 노트북 웹캠 졸음 감지(driver_monitor/drowsy_v5.py)가 UDP 5005로 보내는 신호.
+        #               노트북이 없으면 경고만 하고 정상(False)으로 주행한다.
+        #   sim       : anomaly_delay_sec초 뒤 이상 발생. 노트북 없이 Pi 단독으로 MRM을 데모할 때:
+        #     ros2 launch safecar safecar.launch.py lane_follow:=true bio_source:=sim anomaly_delay_sec:=10.0
+        DeclareLaunchArgument(
+            'bio_source', default_value='udp',
+            description='운전자 이상신호 입력원: udp(노트북 웹캠) 또는 sim(시뮬레이션)'),
         DeclareLaunchArgument(
             'anomaly_delay_sec', default_value='-1.0',
-            description='N초 후 bio_anomaly=True 시뮬레이션. 0 이하면 비활성(항상 정상).'),
+            description='bio_source:=sim일 때 N초 후 bio_anomaly=True. 0 이하면 비활성(항상 정상).'),
 
         # 차선 추종 자율주행 모드. true면 차선 추종 노드가 떠서
         # /cmd_vel_raw를 스스로 만든다(teleop 불필요). teleop과 동시에 켜지 말 것 —
@@ -94,6 +97,7 @@ def generate_launch_description():
             executable='sensor_bridge_node',
             name='sensor_bridge_node',
             output='screen',
-            parameters=[{'anomaly_delay_sec': LaunchConfiguration('anomaly_delay_sec')}],
+            parameters=[{'source': LaunchConfiguration('bio_source'),
+                         'anomaly_delay_sec': LaunchConfiguration('anomaly_delay_sec')}],
         ),
     ])

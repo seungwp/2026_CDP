@@ -1,8 +1,15 @@
 <!-- markdownlint-disable MD033 MD041 -->
 # 운전자 상태 감시(DMS) 구현 스펙
 
-구현 담당: 정수영 · 레포: `cdp-remotepc` · 실행: 노트북 우분투 VM
-출력 계약: [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md)
+구현 담당: 정수영 · 코드: [`driver_monitor/drowsy_v5.py`](../driver_monitor/drowsy_v5.py) · 실행: 노트북(윈도우, ROS 없음)
+출력 계약: [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md) (UDP 5005 → Pi `sensor_bridge_node`)
+
+> **구현 현황 (drowsy_v5, 2026-09-21)** — 이 문서는 설계 스펙이고, 실제 구현은 아래처럼 단순화했다.
+> - 구현: 개인 캘리브레이션(8초, EAR 80퍼센타일 기준 비율), 히스테리시스, PERCLOS(60초), 눈감김 분류(깜빡임/마이크로슬립/수면/무반응),
+>   이벤트 채널 `MICROSLEEP(1s)` → `SLEEP(3s)` → `UNRESPONSIVE(13s)`, 졸음 채널(PERCLOS·마이크로슬립 빈도, 경고만), 얼굴 소실 누적, 경고음, CSV 로그.
+> - **`bio_anomaly=True` 조건 = `SLEEP`(눈감김 또는 얼굴 소실 3초 이상)**, C 키로만 해제.
+> - 미구현: KSS 추정, head pitch(고개 떨굼 각도), 개안 3초 자동 해제(C 키 수동 해제로 대체).
+>   고개 떨굼은 얼굴 소실 경로로 일부 잡힌다.
 
 이 문서는 **"자동차 업계가 실제로 쓰는 방식"** 을 축소 구현하기 위한 스펙이다.
 흔한 오픈소스 졸음감지(고정 임계값 + 연속 프레임 카운트)와 무엇이 다른지가 이 프로젝트의 차별점이므로,

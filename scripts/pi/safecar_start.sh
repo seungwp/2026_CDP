@@ -7,8 +7,8 @@
 # launch와 켜지는 노드가 달라져(Hailo·IMU·sensor_bridge 누락) 스크립트로 달리면
 # 장애물 정지가 없는 채로 주행했다.
 #
-#   ~/safecar_start.sh                    # 기본
-#   ~/safecar_start.sh anomaly_delay_sec:=10.0   # 웹캠 없이 MRM 데모(10초 뒤 이상 발생)
+#   ~/safecar_start.sh                    # 운전자 신호 = 노트북 웹캠(drowsy_v5.py, UDP 5005)
+#   ~/safecar_start.sh bio_source:=sim anomaly_delay_sec:=10.0   # 웹캠 없이 MRM 데모(10초 뒤 이상 발생)
 source /home/pi/safecar_env.sh
 mkdir -p /home/pi/runlog && cd /home/pi/runlog
 

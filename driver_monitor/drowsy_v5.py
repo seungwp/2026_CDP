@@ -10,12 +10,14 @@ v4 대비 변경점
    - 라즈베리파이는 anomaly 값만 /sensors/bio_anomaly (std_msgs/Bool) 로 발행
 3. bio_anomaly 래치
    - 눈감김이 SLEEP(3초) 이상이면 anomaly = True
-   - 눈을 떠도 True 유지 (decision_maker에 래치가 없어서, 여기서 유지해야
-     갓길 정차 도중 차가 다시 출발하지 않음)
+   - 눈을 떠도 True 유지 (한 프레임만 False로 튀어도 차가 갓길에서 재출발하므로)
    - C 키(운전자 조작)로만 해제
+   - 얼굴이 사라진 시간도 눈감김으로 센다 (쓰러짐·고개 떨굼)
+   - Pi의 decision_maker도 따로 래치한다(bio_latch). 그래서 C 키로 해제해도
+     **차는 Pi 노드를 재시작하기 전까지 정차 상태를 유지한다** (UN R157: 재출발 금지)
 
 실행
-  python drowsy_v5.py                  # 라즈베리파이(192.168.50.32)로 전송
+  python drowsy_v5.py                  # 라즈베리파이(raspberrypi.local)로 전송
   python drowsy_v5.py --pi 127.0.0.1   # 내 노트북으로 전송 (수신 테스트용)
 
 키: q = 종료, r = 재캘리브레이션, c = bio_anomaly 해제(운전자 조작)
@@ -46,7 +48,7 @@ except ImportError:
 LOG_DIR = "logs"
 
 # --- 라즈베리파이 연동 ---
-PI_IP_DEFAULT   = "192.168.50.32"
+PI_IP_DEFAULT   = "raspberrypi.local"   # IP는 DHCP라 바뀐다. mDNS 이름을 쓴다
 PI_PORT         = 5005
 SEND_HZ         = 10          # 초당 전송 횟수
 ANOMALY_TRIGGER = "SLEEP"     # 이 단계 이상이면 bio_anomaly = True (래치)
@@ -142,7 +144,14 @@ class PiLink:
     라즈베리파이 쪽에서 '수신 끊김 = 노트북 이상'으로 감지할 수 있다(하트비트).
     """
 
-    def __init__(self, ip, port, hz):
+    def __init__(self, host, port, hz):
+        # 호스트명(raspberrypi.local)은 시작할 때 한 번만 IP로 바꾼다.
+        # 매 전송마다 이름을 풀면 mDNS 조회가 루프를 느리게 만든다.
+        try:
+            ip = socket.gethostbyname(host)
+        except OSError as e:
+            raise SystemExit(f"[ERROR] {host} 를 찾을 수 없습니다 ({e}). "
+                             f"Pi와 같은 Wi-Fi인지 확인하거나 --pi 로 IP를 직접 주세요.")
         self.addr = (ip, port)
         self.period = 1.0 / hz
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -281,7 +290,7 @@ def classify_closure(d):
 # ===== 메인 =====
 parser = argparse.ArgumentParser()
 parser.add_argument("--pi", default=PI_IP_DEFAULT,
-                    help="라즈베리파이 IP (테스트 시 127.0.0.1)")
+                    help="라즈베리파이 호스트명 또는 IP (테스트 시 127.0.0.1)")
 args = parser.parse_args()
 
 SESSION_TAG = input("테스트 조건 태그 (예: pi_link_test / 엔터=생략): ").strip()
@@ -413,8 +422,13 @@ with mp_face_mesh.FaceMesh(
                             ms_times.append(now)
                     closed_start, closed_dur = None, 0.0
             else:
-                eye_closed = False
-                closed_start, closed_dur = None, 0.0
+                # 얼굴 소실도 눈감김과 똑같이 누적한다. 운전자가 쓰러지거나 고개를 떨구면
+                # 얼굴이 화면에서 사라지는데, 여기서 리셋하면 가장 위급한 상황이 NORMAL로 남는다.
+                # (정면을 3초 넘게 벗어나도 SLEEP으로 잡힌다 — 시연 중 옆을 오래 보지 말 것)
+                if closed_start is None:
+                    closed_start = now
+                closed_dur = now - closed_start
+                ev_raw = event_level(closed_dur)
 
             # ----- PERCLOS / 최근 마이크로슬립 -----
             while window and now - window[0][0] > PERCLOS_WINDOW:

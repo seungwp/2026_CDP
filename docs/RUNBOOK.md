@@ -82,7 +82,7 @@ Pi 홈에 있는 스크립트 4개로 대부분의 작업이 됩니다(원본은
 차선 인식(`vision_detector`) + 차선 추종(`lane_follower`) + 안전 게이트(`decision_maker`) + 센서 브릿지 + 카메라 + Hailo를 **한 번에** 띄웁니다.
 
 ```bash
-ros2 launch safecar safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
+ros2 launch safecar safecar.launch.py lane_follow:=true
 ```
 
 launch 인자:
@@ -90,10 +90,11 @@ launch 인자:
 | 인자 | 기본값 | 의미 |
 |---|---|---|
 | `lane_follow` | `false` | `true`면 차선 인식·추종 노드 실행(teleop 불필요) |
-| `anomaly_delay_sec` | `-1.0` | N초 후 운전자 이상(bio_anomaly=True) 시뮬레이션 → 갓길 대피(MRM) 발동. **`-1.0`이면 비활성**(정상 주행만) |
+| `bio_source` | `udp` | 운전자 이상신호 입력원. `udp` = 노트북 웹캠(`driver_monitor/drowsy_v5.py`), `sim` = 시뮬레이션. 노트북이 없으면 경고만 하고 정상 주행 |
+| `anomaly_delay_sec` | `-1.0` | `bio_source:=sim`일 때 N초 후 운전자 이상 → 갓길 대피(MRM) 발동. **`-1.0`이면 비활성** |
 
-- 자율주행 순수 테스트: `lane_follow:=true anomaly_delay_sec:=-1.0`
-- 갓길 대피(MRM) 데모: `lane_follow:=true anomaly_delay_sec:=10.0` → 10초 뒤 우측 갓길로 감속·정차
+- 자율주행 + 노트북 웹캠 연동(시연): `lane_follow:=true` 후 노트북에서 `python drowsy_v5.py`
+- 노트북 없이 갓길 대피(MRM) 데모: `lane_follow:=true bio_source:=sim anomaly_delay_sec:=10.0` → 10초 뒤 우측 갓길로 감속·정차
 - `lane_follow:=false`로 두고 teleop을 `/cmd_vel_raw`로 쏘면, 게이트를 거치는 수동주행도 가능(장애물 자동정지·타임아웃 살아있음)
 
 > ⚠️ teleop과 `lane_follow:=true`를 **동시에 켜지 말 것** — 둘 다 `/cmd_vel_raw`에 publish해서 명령이 섞입니다.

@@ -26,24 +26,26 @@ NTREX의 [STELLA_N5_ROS2](https://github.com/ntrexlab/STELLA_N5_ROS2)를 기반�
 │   ├── ydlidar_ros/               # YDLIDAR X4 — '/scan' publish (패키지명 ydlidar)
 │   ├── stella_bringup/            # 차체 구동부 launch (md + ahrs + lidar)
 │   └── stella_hailo_rpi5_ros2_examples/  # Hailo-8 NPU 객체 인식
-├── scripts/                   # Pi 운영 스크립트(pi/) + 진단 도구(scan_check, image_server)
+├── driver_monitor/            # 노트북(윈도우)에서 실행 — 웹캠 졸음 감지 → UDP로 Pi에 전송 (ROS 아님)
+├── scripts/                   # Pi 운영 스크립트(pi/) + 진단 도구(scan_check, image_server, record_dataset)
 └── docs/
 ```
 
 > 예전에는 담당자별로 ROS 패키지를 나눴다(코드 약 1천 줄에 패키지 5개, 설정 파일 25개).
 > 2026-09-21에 `safecar` 패키지 하나로 합치고 담당 영역은 하위 폴더로 구분했다.
 
-## 레포 경계 (누가 어디서 작업하나)
+## 실행 머신 (누가 어디서 도나)
 
-| 실행 머신 | 레포 | 담당 | 내용 |
+| 실행 머신 | 코드 | 담당 | 내용 |
 |---|---|---|---|
-| Raspberry Pi 5 (차체) | **`2026_CDP`** (이 레포) | 김승제 · 진다혜 | 차선 인식 · 차선 추종 · 안전 게이트 · 차체 드라이버 |
-| 노트북 우분투 VM | **`cdp-remotepc`** | 정수영 | 웹캠 운전자 이상 감지(`driver_monitor_node`) |
+| Raspberry Pi 5 (차체) | `safecar/`, `stella/` | 김승제 · 진다혜 · 정수영(`comms/`) | 차선 인식 · 차선 추종 · 안전 게이트 · 차체 드라이버 · UDP 수신 |
+| 노트북 (윈도우, ROS 없음) | `driver_monitor/drowsy_v5.py` | 정수영 | 웹캠 운전자 졸음·무반응 감지 |
 
-두 레포의 접점은 **`/sensors/bio_anomaly` 토픽 하나뿐**이다(같은 `ROS_DOMAIN_ID=52`면 DDS가 자동 연결).
-규약·latch 요구사항·독립 테스트 방법은 [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md) 참고.
+두 기계의 접점은 **UDP 5005 포트 하나뿐**이다. 노트북이 운전자 상태를 초당 10회 보내면
+Pi의 `sensor_bridge_node`가 받아 `/sensors/bio_anomaly`로 발행한다.
+규약·latch·끊김 처리·독립 테스트 방법은 [`docs/DRIVER_SIGNAL_CONTRACT.md`](DRIVER_SIGNAL_CONTRACT.md) 참고.
 
-**주행은 Pi 단독으로 완결됩니다** — 자율주행 루프에 외부 기계로 나가는 토픽이 없어, 네트워크가 끊겨도 주행은 계속됩니다. VM이 필요한 건 웹캠 운전자 감지뿐이고, 개발·점검은 SSH + `scripts/`의 진단 도구로 합니다(카메라 영상은 브라우저, 라이다는 텍스트 출력). rqt/rviz를 쓰고 싶을 때만 VM을 켜면 됩니다.
+**주행은 Pi 단독으로 완결됩니다** — 자율주행 루프에 외부 기계로 나가는 신호가 없어, 네트워크가 끊겨도 주행은 계속됩니다. 노트북이 필요한 건 웹캠 운전자 감지뿐이고, 개발·점검은 SSH + `scripts/`의 진단 도구로 합니다(카메라 영상은 브라우저, 라이다는 텍스트 출력). 우분투 VM(`cdp-remotepc`)은 rqt/rviz를 쓰고 싶을 때만 켜면 됩니다.
 
 ## 시스템 블록도 (전체 작동 과정)
 
@@ -63,8 +65,10 @@ flowchart TD
         VD["vision_detector_node<br/>OpenCV 차선 인식<br/>(lane_follow 모드)"]
     end
 
-    subgraph COMMS["통신 (노트북 VM, cdp-remotepc 레포)"]
-        BRIDGE["driver_monitor_node<br/>웹캠 운전자 이상 감지<br/>(sensor_bridge_node = 시뮬, 기본 비활성)"]
+    subgraph COMMS["통신"]
+        DMS["drowsy_v5.py (노트북)<br/>웹캠 졸음·무반응 감지"]
+        BRIDGE["sensor_bridge_node (Pi)<br/>UDP 5005 수신 → 토픽 발행"]
+        DMS -- "UDP JSON 10Hz" --> BRIDGE
     end
 
     subgraph CONTROL["판단/제어"]
@@ -78,7 +82,7 @@ flowchart TD
     end
 
     CAM --> CAMNODE
-    BIOHW --> BRIDGE
+    BIOHW --> DMS
     CAMNODE -- "/camera/image_raw" --> HAILO
     HAILO -- "/detection_image<br/>(바운딩박스 영상)" --> VIEW["rqt_image_view /<br/>대시보드(예정)"]
     HAILO -- "/perception/obstacle_detected (Bool)" --> DM
@@ -162,11 +166,14 @@ flowchart LR
 colcon build
 source install/setup.bash
 
-# 기본(수동/teleop 주행, 이상신호 시뮬레이션 꺼짐)
+# 기본(수동/teleop 주행, 운전자 신호는 노트북 웹캠 UDP 대기)
 ros2 launch safecar safecar.launch.py
 
-# 차선 추종 자율주행 (시뮬레이션 끔 — 트랙 테스트용)
-ros2 launch safecar safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0
+# 차선 추종 자율주행
+ros2 launch safecar safecar.launch.py lane_follow:=true
+
+# 노트북 없이 MRM 데모 (10초 뒤 운전자 이상 시뮬레이션)
+ros2 launch safecar safecar.launch.py lane_follow:=true bio_source:=sim anomaly_delay_sec:=10.0
 ```
 
 launch 인자:
@@ -174,7 +181,8 @@ launch 인자:
 | 인자 | 기본값 | 설명 |
 |---|---|---|
 | `lane_follow` | `false` | true면 차선 인식+추종 노드 실행(자율주행). teleop과 동시 사용 금지 |
-| `anomaly_delay_sec` | `-1.0` | N초 후 운전자 이상 시뮬레이션(0 이하 = 비활성). 실제 감지는 VM 웹캠 노드 담당 |
+| `bio_source` | `udp` | 운전자 이상신호 입력원. `udp` = 노트북 웹캠(`drowsy_v5.py`), `sim` = 시뮬레이션 |
+| `anomaly_delay_sec` | `-1.0` | `bio_source:=sim`일 때 N초 후 운전자 이상 발생(0 이하 = 비활성) |
 
 ## 토픽 계약
 
@@ -183,7 +191,7 @@ launch 인자:
 | `/camera/image_raw` | sensor_msgs/Image | camera_ros (640x480) | stella_hailo_rpi5_ros2_examples |
 | `/perception/obstacle_detected` | std_msgs/Bool | stella_hailo_rpi5_ros2_examples (Hailo-8 실추론) | safecar (control) |
 | `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
-| `/sensors/bio_anomaly` | std_msgs/Bool | **VM의 driver_monitor_node** (웹캠, `cdp-remotepc` 레포) / 시뮬은 safecar (comms) | safecar (control) |
+| `/sensors/bio_anomaly` | std_msgs/Bool | safecar (comms, `sensor_bridge_node` — 노트북 UDP 중계 또는 시뮬) | safecar (control) |
 | `/control/driving_state` | std_msgs/String | safecar (control) | (대시보드/로깅용) |
 | `/perception/lane_offset` | std_msgs/Float32 | safecar (perception, 차선 찾은 프레임만, -1~+1) | safecar (control, lane_follower) |
 | `/perception/lane_heading` | std_msgs/Float32 | safecar (perception, 추종 중인 차선의 기울기, +는 우측으로 휨) | safecar (control, lane_follower, 곡선 선제 조향) |
