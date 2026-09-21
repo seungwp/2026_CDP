@@ -5,7 +5,7 @@ from std_msgs.msg import Float32, String
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 
-from safecar.protocol import COMMAND_MRM_PULL_OVER
+from safecar.protocol import COMMAND_MRM_PULL_OVER, COMMAND_NORMAL
 from safecar.control.mrm_profile import MrmProfile
 from safecar.control.scan_sectors import sector_min
 
@@ -222,7 +222,11 @@ class LaneFollowerNode(Node):
             self.mrm_mode, self.mrm.lateral_bias = self._decide_mrm_mode(lane_fresh)
             self.mrm_start_time = self.get_clock().now()
             self.get_logger().warn(f'운전자 이상 — MRM 시작 ({self.mrm_mode})')
-        elif not mrm and self.mrm_start_time is not None:
+        # NORMAL일 때만 해제한다. EMERGENCY_BRAKE(장애물·인지 끊김)는 MRM 도중에도 잠깐 끼어들
+        # 수 있는데, 그걸 해제로 보면 장애물이 사라진 뒤 프로파일이 0초부터 다시 시작돼
+        # 정차했던 차가 재출발한다(R157 위반). 비상정지 동안에도 프로파일 시간은 계속 흐르므로
+        # 이미 정차를 마친 뒤라면 장애물이 사라져도 속도 0이 유지된다.
+        elif msg.data == COMMAND_NORMAL and self.mrm_start_time is not None:
             self.mrm_start_time = None
             self.mrm_mode = None
             self.get_logger().info('MRM 해제 — 정상 주행 복귀')
