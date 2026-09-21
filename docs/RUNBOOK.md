@@ -74,7 +74,7 @@ launch 인자:
 | 인자 | 기본값 | 의미 |
 |---|---|---|
 | `lane_follow` | `false` | `true`면 차선 인식·추종 노드 실행(teleop 불필요) |
-| `anomaly_delay_sec` | `10.0` | N초 후 운전자 이상(bio_anomaly=True) 시뮬레이션 → 갓길 대피(MRM) 발동. **`-1.0`이면 비활성**(정상 주행만) |
+| `anomaly_delay_sec` | `-1.0` | N초 후 운전자 이상(bio_anomaly=True) 시뮬레이션 → 갓길 대피(MRM) 발동. **`-1.0`이면 비활성**(정상 주행만) |
 
 - 자율주행 순수 테스트: `lane_follow:=true anomaly_delay_sec:=-1.0`
 - 갓길 대피(MRM) 데모: `lane_follow:=true anomaly_delay_sec:=10.0` → 10초 뒤 우측 갓길로 감속·정차
@@ -111,7 +111,7 @@ ros2 launch stella_bringup robot.launch.py
 ```bash
 ros2 launch stella_md      stella_md_launch.py             # 모터드라이버만 (/cmd_vel 구독, /odom 발행)
 ros2 launch stella_ahrs    stella_ahrs_launch.py           # IMU/AHRS만 (imu/yaw 발행)
-ros2 launch ydlidar_ros    ydlidar_launch.py               # YDLIDAR X4만 (/scan 발행)
+ros2 launch ydlidar        ydlidar_launch.py               # YDLIDAR X4만 (/scan 발행)
 ros2 launch stella_bringup stella_state_publisher.launch.py # robot_state_publisher (URDF/TF)
 ros2 launch stella_hailo_rpi5_ros2_examples hailo_ros2_detection_launch.py  # Hailo 객체인식만
 ```
@@ -169,7 +169,40 @@ ros2 topic echo /perception/lane_offset     # 차선 오프셋(-1~+1)
 ros2 topic echo /cmd_vel                    # 실제 바퀴로 나가는 명령
 ros2 topic echo /cmd_vel_raw                # 게이트 이전 주행 명령
 ros2 topic hz /camera/image_raw             # 카메라 프레임레이트
-# 디버그 영상: 원격 PC(rqt/rviz)에서 /perception/lane_image 확인
+# 디버그 영상: 브라우저로 보기(VM 불필요) — 아래 2-G 참고
+#            또는 원격 PC(rqt/rviz)에서 /perception/lane_image 확인
+```
+
+---
+
+### 2-G. 진단 스크립트 (`scripts/` — VM 없이 SSH만으로)
+
+`colcon build` 불필요. 환경만 잡고 `python3`로 바로 실행합니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ~/camera_ws/install/local_setup.bash      # camera_ros
+source ~/jazzy_ws/install/local_setup.bash       # cv_bridge
+source ~/2026_CDP/install/local_setup.bash
+export ROS_DOMAIN_ID=52
+```
+
+**카메라 영상을 노트북 브라우저로 보기** — 우분투 VM도 rqt도 필요 없습니다.
+
+```bash
+python3 scripts/image_server.py                            # /perception/lane_image (차선 디버그)
+python3 scripts/image_server.py --topic /camera/image_raw  # 원본 (카메라 물리 조준용)
+```
+
+노트북 브라우저에서 **`http://raspberrypi.local:8080/`** — 라이브 영상.
+Pi IP는 공유기가 DHCP로 주는 값이라 바뀝니다. mDNS 이름(`raspberrypi.local`)을 쓰면 IP를 몰라도 됩니다.
+`/snapshot`으로 정지 프레임 1장을 받을 수 있습니다(튜닝 근거 이미지용).
+
+**라이다 섹터 점검** — 가림 확인 + 각도 실측 (3-4 참고)
+
+```bash
+python3 scripts/scan_check.py
+python3 scripts/scan_check.py --selftest   # ROS 없이 로직만 검증
 ```
 
 ---
@@ -177,82 +210,99 @@ ros2 topic hz /camera/image_raw             # 카메라 프레임레이트
 ### 2-F. 종료
 
 - `Ctrl+C`로 런치를 종료합니다.
+- **`camera_node`는 SIGTERM으로 안 죽고 CSI를 물고 있습니다** — 다음 실행이 "Pipeline handler in use by another process"로 실패하므로 반드시:
+  ```bash
+  pkill -9 -f camera_node; pkill -f vision_detector_node; pkill -f image_server
+  ```
 - **모터 워치독**: 마지막 `/cmd_vel` 이후 0.5초가 지나면 `stella_md`가 바퀴에 정지 명령을 자동으로 보냅니다. 즉 Ctrl+C로 스택을 죽여도 차량이 스스로 멈춥니다. (이 워치독이 없으면 마지막 속도가 하드웨어에 래치돼 계속 굴러감 — 과거 버그였고 이번에 수정됨)
 - 수동주행(2-A②)은 게이트/워치독 경로가 달라, teleop에서 `s`/`q`로 명시적으로 멈추는 걸 권장합니다.
 
 ---
 
-## 3. 차선 추종 캘리브레이션 & 튜닝
+## 3. 차선 추종 & 갓길 대피 튜닝
 
-인지: 버드아이(원근 변환) + sliding-window 다항식 중심선 → `/perception/lane_path`(정규화)
-제어: Pure Pursuit + 곡률 감속 + rate-limit (`lane_follower_node.py`)
+인지: OpenCV HSV 노란 마스크 + Canny + HoughLinesP → `/perception/lane_offset`(-1~+1)
+제어: P 조향 + 오프셋 EMA (`lane_follower_node`), 갓길 대피는 `mrm_profile.MrmProfile`
 
-대부분 ROS 파라미터라 **재빌드 없이** launch 파일 수정 후 relaunch(또는 `-p` 오버라이드)로 조정합니다.
-표시된 것만 코드 상수(수정 시 재빌드 필요). 값은 `safecar_bringup/launch/safecar.launch.py`의
-`vision_detector_node`/`lane_follower_node` parameters 블록에서 바꿉니다.
+> 2026-07-24에 시도했던 버드아이(원근변환) + Pure Pursuit은 트랙에서 흔들려 **되돌렸습니다**.
+> 그때 쓰던 `persp_src` / `lookahead_dist` / `k_curv` 같은 파라미터는 **지금 코드에 없습니다**.
+> 코드는 git 히스토리에 남아 있고, 쓰려면 카메라를 더 숙여 단 뒤 재캘리브레이션해야 합니다.
 
-### 3-0. 원근 캘리브레이션 (제일 먼저, 필수)
+### 3-1. 카메라를 옮겼다면 여기부터 (코드 상수 — 수정 시 재빌드 필요)
 
-`vision_detector_node`의 `persp_src`(사다리꼴 4점, 640×480 기준)를 조정합니다.
+`safecar_perception/vision_detector.py`의 클래스 상수입니다. **카메라 높이·각도가 바뀌면 전부 다시 잡아야 합니다.**
+
+| 상수 | 기본값 | 의미 | 조정 방향 |
+|---|---|---|---|
+| `ROI_TOP` | 0.45 | 이 높이 비율 아래에서만 차선 탐색 | 테이프가 화면 위쪽에 보이면 ↓ |
+| `Y_EVAL` | 0.7 | 오프셋을 재는 기준 행 | 테이프가 보이는 구간 안에 두기 |
+| `HALF_LANE_PX` | 340 | 한쪽 차선만 보일 때 가정하는 차로 반폭(px) | **가장 민감** — 실측해서 맞출 것 |
+| `MIN_ABS_SLOPE` | 0.3 | 이보다 완만한 선분은 차선에서 제외 | 정지선·그림자가 잡히면 ↑ |
+| `USE_WHITE` | False | 흰색 마스크 사용 | 흰 테이프 트랙이면 True |
+
+검출 자체가 안 되면 HSV 범위(`inRange([18,70,70]~[40,255,255])`)를 조정합니다.
+바닥이 나무색이면 노란 마스크에 걸려 오검출이 납니다 — 실제로 실내 사무실에서 확인됨.
+
+### 3-2. 주행 안정성 (`lane_follower_node` 파라미터 — 재빌드 불필요)
+
+| 파라미터 | 기본값 | 역할 | 증상 → 방향 |
+|---|---|---|---|
+| `cruise_speed` | 0.12 | 전진 속도(m/s) | — |
+| `steer_gain` | 1.2 | 조향 P게인 | **흔들리면(와리가리) ↓** (~0.9) / 굼뜨면 ↑ |
+| `offset_smoothing` | 0.7 | 오프셋 EMA 계수 | 떨림이 조향에 실리면 ↑ |
+| `offset_timeout` | 0.5 | 차선 유실 판정(초) | — |
+
+### 3-3. 갓길 대피(MRM)
+
+**모드 결정** — 선행특허 KR 10-2024-0073259의 결정 플로우를 센서 구성에 맞춰 구현했습니다.
 
 ```
-persp_src = [tl_x,tl_y, tr_x,tr_y, br_x,br_y, bl_x,bl_y]   # 기본: [200,280, 440,280, 600,470, 40,470]
+차로 유지 가능? ─아니오─▶ 직진정차 (조향 끊고 감속만)
+     │예
+차로 변경 가능? ─아니오─▶ 자차로정차
+     │예
+                      └─▶ 우차로정차
 ```
 
-절차:
-1. `ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=-1.0`
-2. 차를 **직선 차선** 위에 두고, 원격 PC(rqt/rviz)에서 `/perception/lane_image` 확인.
-3. 파란 사다리꼴(=persp_src)이 좌우 차선을 감싸고, 초록(차선)·노랑(중심선) 선이 차선과 잘 겹치도록 4점을 조정.
-4. 직선 구간에서 중심선이 **곧게** 그려지면 캘리브레이션 완료.
-
-### 3-1. 직선 안정성 (흔들림 제거) — `lane_follower_node`
-
-| 파라미터 | 기본값 | 역할 | 증상 → 방향 |
-|---|---|---|---|
-| `lookahead_dist` | 0.8 | Pure Pursuit 전방 목표 거리(정규화, 최대 ~0.97) | **흔들리면 ↑** / 코너 컷·둔하면 ↓ (영향 제일 큼) |
-| `steer_gain` | 0.8 | 전체 조향 세기 | 흔들리면 ↓(0.6~) / 굼뜨면 ↑ |
-| `steer_deadband` | 0.05 | 이 이내 횡오차 무시 | 중앙 근처 떨리면 ↑ |
-| `max_ang_accel` | 4.0 | 조향 급변 제한(rad/s²) | 명령이 홱홱하면 ↓ |
-| `max_steer` | 1.0 | 조향 각속도 상한(rad/s) | 과조향 클램프 |
-
-### 3-2. 곡선 (미리 조향·자동 감속) — `lane_follower_node`
-
-| 파라미터 | 기본값 | 역할 | 증상 → 방향 |
-|---|---|---|---|
-| `k_curv` | 1.0 | 곡률 기반 감속 세기 | 코너에서 밀려나면(오버슈트) ↑ / 너무 느리면 ↓ |
-| `lookahead_dist` | 0.8 | (재조정) 곡선 컷 vs 오버슈트 균형 | 안쪽 파고들면 ↑ |
-| `cruise_speed` | 0.12 | 기본 전진 속도(m/s) | 전체 속도감 |
-| `v_min` | 0.06 | 곡선 감속 하한(m/s) | 곡선에서 너무 느려 멈추면 ↑ |
-
-### 3-3. 스무스 갓길 대피(MRM) — `lane_follower_node`
-
-| 파라미터 | 기본값 | 역할 | 증상 → 방향 |
-|---|---|---|---|
-| `mrm_transition_time` | 2.0 | 갓길로 붙는 시간(호의 완만함) | 급격하면 ↑(2~3s) |
-| `mrm_target_offset` | -0.6 | 갓길 목표 위치(음수=우측, 정규화) | 덜 붙으면 더 음수로 |
-| `mrm_speed_ratio` | 0.6 | 대피 중 속도 비율 | — |
-| `mrm_stop_duration` | 3.0 | 갓길 도달 후 정차까지 시간(초) | — |
-
-### 3-4. 선 종류 / 색 (인지 파라미터)
-
-`vision_detector_node` 파라미터로 트랙 형태에 맞춥니다(launch에서 조정, 재빌드 불필요):
-
-| 파라미터 | 기본값 | 의미 |
+| 파라미터 | 기본값 | 역할 |
 |---|---|---|
-| `follow_single_line` | False | **단일 선 직접 추종**(노란선 한 줄을 따라감). 양쪽 차선 트랙이면 False |
-| `use_white` | False | 흰색 검출 포함. 실내 노란선+반사바닥이면 False(반사 오검출 방지) |
+| `mrm_lateral_bias` | 0.5 | 대피 목표 횡위치. **양수=우측**. `0.0`이면 차로 내 정지(R157 기본) |
+| `mrm_transition_time` | 3.0 | 갓길로 붙는 시간(초) |
+| `mrm_speed_ratio` | 0.6 | 이동 중 속도 비율 |
+| `mrm_stop_duration` | 2.0 | 붙은 뒤 정지까지(초) |
 
-- **실내 노란선 한 줄**: `follow_single_line:=true`, `use_white:=false` (현재 launch 기본 설정)
-- **양쪽 차선(흰/노랑) 트랙**: 둘 다 false → 차로 중심 추종
+**라이다 기반 대피 가능 판정**
 
-차선을 **아예 못 잡으면** HSV 임계값(코드 상수, 재빌드 필요): `_color_mask`의
-노랑 `inRange([18,70,70]~[40,255,255])`, 흰색 `inRange([0,0,200]~[180,25,255])`을 조정합니다.
+| 파라미터 | 기본값 | 역할 |
+|---|---|---|
+| `mrm_rear_deg` / `mrm_side_deg` | 180.0 / -90.0 | 후방·우측 섹터 중심각. **실측 확인 필수**(3-4) |
+| `mrm_sector_half_deg` | 30.0 | 섹터 반각 |
+| `mrm_rear_clear_m` / `mrm_side_clear_m` | 0.6 / 0.35 | 이보다 비어야 횡이동 허용 |
+| `mrm_require_scan` | True | `/scan` 없으면 자차로정차로 폴백. 라이다 없이 튜닝할 땐 False |
 
-> 튜닝 순서 원칙: **3-0(캘리브레이션) → 3-1(직선) → 3-2(곡선) → 3-3(MRM)**. 앞 단계가 안정돼야 뒤가 의미 있습니다.
->
-> 확인용 토픽: `ros2 topic echo /perception/lane_offset` (횡오차 -1~+1), `ros2 topic echo /perception/lane_path` (정규화 중심선 [lat,fwd,...]).
+`decision_maker_node`:
 
----
+| 파라미터 | 기본값 | 역할 |
+|---|---|---|
+| `bio_latch` | True | 운전자 이상 래치(R157: 정차 후 수동 입력 전 재출발 금지). **튜닝 중엔 False** |
+| `cmd_vel_timeout` | 1.0 | `/cmd_vel_raw` 끊김 판정(초) |
+
+> ⚠️ 벽 가까이에서 테스트하면 우측이 막혀 **항상 `자차로정차`** 가 나옵니다. 버그가 아닙니다.
+> MRM 모드 테스트는 트인 곳에서 하세요.
+
+### 3-4. 라이다 섹터 각도 실측 (한 번만)
+
+`ydlidar.yaml`에 `reversion: true`가 걸려 있어 **ROS 표준 각도와 다를 수 있습니다.**
+`mrm_side_deg`가 틀리면 갓길 판정이 통째로 틀어지므로 반드시 확인합니다.
+
+```bash
+ros2 launch ydlidar ydlidar_launch.py      # 터미널 1
+python3 scripts/scan_check.py              # 터미널 2 (colcon build 불필요)
+```
+
+1. **빈 공간에서 실행** → 특정 칸만 항상 짧으면 차체/구조물에 가린 것
+2. **차 우측에만 물체를 두고** → `<== 최근접`이 뜨는 칸의 **중심각**이 `mrm_side_deg`
+3. 뒤에만 물체 → 같은 방법으로 `mrm_rear_deg`
 
 ## 4. git 저장소 복구 (loose object 깨짐)
 

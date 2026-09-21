@@ -24,6 +24,12 @@ class DecisionMakerNode(Node):
         self.declare_parameter('cmd_vel_timeout', 1.0)
         self.cmd_vel_timeout = self.get_parameter('cmd_vel_timeout').value
 
+        # 운전자 이상 래치. UN R157: MRM으로 정차한 차량은 수동 입력 없이 다시 움직여선 안 된다.
+        # 래치가 없으면 이상신호가 한 프레임만 False로 튀어도 차가 갓길에서 재출발한다.
+        # 해제하려면 노드를 다시 띄워야 한다(주행 튜닝 중에는 false로 꺼서 쓸 것).
+        self.declare_parameter('bio_latch', True)
+        self.bio_latch = self.get_parameter('bio_latch').value
+
         self.bio_anomaly = False
         self.obstacle_detected = False
         self.last_command = None
@@ -42,6 +48,10 @@ class DecisionMakerNode(Node):
         self.create_timer(0.1, self._decide_and_publish)  # 10Hz
 
     def _on_bio_anomaly(self, msg):
+        if self.bio_latch and self.bio_anomaly:
+            return  # 한 번 걸린 래치는 풀지 않는다
+        if msg.data and not self.bio_anomaly and self.bio_latch:
+            self.get_logger().warn('운전자 이상 래치 — 재시작 전까지 해제되지 않는다')
         self.bio_anomaly = msg.data
 
     def _on_obstacle_detected(self, msg):

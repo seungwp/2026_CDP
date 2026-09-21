@@ -1,6 +1,6 @@
 # cdp_ws — SafeCar ROS2 워크스페이스
 
-STELLA N1 차체(라즈베리파이 5 + Hailo-8 AI HAT + ESP32/STM32) 기반 안전 감독(fail-safe) 시스템.
+STELLA N1 차체(라즈베리파이 5 + Hailo-8 AI HAT + YDLIDAR X4) 기반 안전 감독(fail-safe) 시스템.
 
 NTREX의 [STELLA_N5_ROS2](https://github.com/ntrexlab/STELLA_N5_ROS2)를 기반으로,
 실제 차체(STELLA N1, YDLIDAR X4 단일 라이다)에 맞게 불필요한 패키지를 정리하고
@@ -23,10 +23,22 @@ cdp_ws/
 │   ├── safecar_msgs/          # 공용 명령어 상수
 │   ├── safecar_perception/    # 인지부 — 차선/장애물 인식
 │   ├── safecar_control/       # 제어부 — 상황 판단, cmd_vel 개입
-│   ├── safecar_comms/         # 통신부 — ESP32/STM32 센서 브릿지
+│   ├── safecar_comms/         # 통신부 — 외부 운전자 감시 신호 중계(+시뮬)
 │   └── safecar_dashboard/     # 대시보드 (방식 미정, 자리만)
 └── safecar_bringup/           # 통합 launch (stella_bringup + camera_ros + safecar 노드)
 ```
+
+## 레포 경계 (누가 어디서 작업하나)
+
+| 실행 머신 | 레포 | 담당 | 내용 |
+|---|---|---|---|
+| Raspberry Pi 5 (차체) | **`2026_CDP`** (이 레포) | 김승제 · 진다혜 | 차선 인식 · 차선 추종 · 안전 게이트 · 차체 드라이버 |
+| 노트북 우분투 VM | **`cdp-remotepc`** | 정수영 | 웹캠 운전자 이상 감지(`driver_monitor_node`) |
+
+두 레포의 접점은 **`/sensors/bio_anomaly` 토픽 하나뿐**이다(같은 `ROS_DOMAIN_ID=52`면 DDS가 자동 연결).
+규약·latch 요구사항·독립 테스트 방법은 [`safecar/safecar_comms/README.md`](../safecar/safecar_comms/README.md) 참고.
+
+**주행은 Pi 단독으로 완결됩니다** — 자율주행 루프에 외부 기계로 나가는 토픽이 없어, 네트워크가 끊겨도 주행은 계속됩니다. VM이 필요한 건 웹캠 운전자 감지뿐이고, 개발·점검은 SSH + `scripts/`의 진단 도구로 합니다(카메라 영상은 브라우저, 라이다는 텍스트 출력). rqt/rviz를 쓰고 싶을 때만 VM을 켜면 됩니다.
 
 ## 시스템 블록도 (전체 작동 과정)
 
@@ -34,7 +46,7 @@ cdp_ws/
 flowchart TD
     subgraph HW["센서 / 하드웨어"]
         CAM["카메라 모듈 3 (imx708, CSI)"]
-        BIOHW["생체신호 센서 (ESP32/STM32, 연동 예정)"]
+        BIOHW["노트북 웹캠 (운전자 감시)"]
         LIDAR["YDLIDAR X4"]
         IMU["IMU/AHRS"]
         JOY["블루투스 조이스틱"]
@@ -46,8 +58,8 @@ flowchart TD
         VD["vision_detector_node<br/>OpenCV 차선 인식<br/>(lane_follow 모드)"]
     end
 
-    subgraph COMMS["통신"]
-        BRIDGE["sensor_bridge_node<br/>(현재: 10초 후 이상 발생 시뮬레이션)"]
+    subgraph COMMS["통신 (노트북 VM, cdp-remotepc 레포)"]
+        BRIDGE["driver_monitor_node<br/>웹캠 운전자 이상 감지<br/>(sensor_bridge_node = 시뮬, 기본 비활성)"]
     end
 
     subgraph CONTROL["판단/제어"]
@@ -56,16 +68,15 @@ flowchart TD
     end
 
     subgraph BASE["차체 (STELLA N1)"]
-        MD["stella_md_node<br/>모터드라이버"]
-        STM["STM32 (CAN)<br/>heartbeat watchdog<br/>(개발 중)"]
+        MD["stella_md_node<br/>모터드라이버<br/>cmd_vel 워치독 0.5s"]
         MOTOR["좌/우 구동 모터"]
     end
 
     CAM --> CAMNODE
+    BIOHW --> BRIDGE
     CAMNODE -- "/camera/image_raw" --> HAILO
     HAILO -- "/detection_image<br/>(바운딩박스 영상)" --> VIEW["rqt_image_view /<br/>대시보드(예정)"]
     HAILO -- "/perception/obstacle_detected (Bool)" --> DM
-    BIOHW -. "시리얼 (TODO)" .-> BRIDGE
     BRIDGE -- "/sensors/bio_anomaly (Bool)" --> DM
     DM -- "/control/driving_state" --> VIEW
     CAMNODE -- "/camera/image_raw" --> VD
@@ -74,12 +85,10 @@ flowchart TD
     LF -- "/cmd_vel_raw (자율 주행)" --> DM
     JOY -- "/cmd_vel_raw (수동 주행)" --> DM
     DM -- "/cmd_vel (단일 게이트, 10Hz)" --> MD
-    LIDAR -. "/scan (갓길/회피 공간 판단용, 예정)" .-> DM
+    LIDAR -- "/scan (후방·측방 여유 → MRM 모드 결정)" --> LF
     IMU -- "/imu/yaw" --> MD
     MD -- "/odom" --> VIEW
     MD --> MOTOR
-    DM -. "CAN heartbeat<br/>(정상신호, 주기적)" .-> STM
-    STM -. "신호 끊김 → 직접 감속·정지<br/>(개발 중)" .-> MOTOR
 ```
 
 > **안전 게이트**: `/cmd_vel`은 decision_maker만 publish한다. 주행 명령(teleop, 추후
@@ -88,20 +97,22 @@ flowchart TD
 > (stella_md에 자체 타임아웃이 없어 통신 단절 시 마지막 속도로 계속 달리는 문제 방지).
 > teleop 실행 시 remap 필수 — cdp-remotepc README의 `/cmd_vel_raw` remap 명령 참고.
 >
-> **하드웨어 최후 방어선(개발 중)**: 위 게이트는 소프트웨어(라즈베리파이) 위에서 동작하므로 연산부 자체가 죽으면 무력하다.
-> 이를 대비해 라즈베리파이가 주기적으로 정상신호(heartbeat)를 CAN으로 STM32에 보내고, 이 신호가 일정 시간 끊기면
-> STM32가 제어를 이어받아 모터를 직접 서서히 감속·정지시킨다.
+> **차체 측 최후 방어선**: 위 게이트는 라즈베리파이 위에서 돌기 때문에 스택이 통째로 죽으면 무력하다.
+> 그래서 `stella_md`(차체 드라이버)에 자체 워치독을 뒀다 — 마지막 `/cmd_vel` 이후 0.5초가 지나면
+> 모터에 정지 명령을 보낸다. Ctrl+C로 스택을 죽여도 차가 스스로 멈추는 이유다.
+> (당초 계획했던 STM32 CAN heartbeat 이중화는 범위에서 제외했다.)
 
 ### 판단 로직 (decision_maker)
 
 ```mermaid
 flowchart LR
-    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> AV{"회피 여유공간?<br/>(LiDAR /scan, 개발 중)"}
-    AV -- 있음 --> AVOID["AVOID<br/>여유 방향으로 회피 주행"]
-    AV -- 없음 --> E["EMERGENCY_BRAKE<br/>급제동 (폴백)"]
-    A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly)"}
-    B -- 예 --> M["MRM_PULL_OVER<br/>갓길 대피 (감속 후 정차)"]
+    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지 (= 특허의 '비상정차')"]
+    A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
+    B -- 예 --> M["MRM_PULL_OVER<br/>lane_follower가 모드 결정 후 대피"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
+    M --> M2{"/scan 후방·우측 여유?"}
+    M2 -- 있음 --> M3["우차로정차<br/>우측으로 붙어 정지"]
+    M2 -- 없음 --> M4["자차로정차<br/>차로 안에서 정지"]
 ```
 
 ## 제거한 것 (원본 STELLA_N5_ROS2 대비)
@@ -128,7 +139,7 @@ flowchart LR
 colcon build
 source install/setup.bash
 
-# 기본(수동/teleop 주행, 10초 뒤 운전자 이상 시뮬레이션 발동)
+# 기본(수동/teleop 주행, 이상신호 시뮬레이션 꺼짐)
 ros2 launch safecar_bringup safecar.launch.py
 
 # 차선 추종 자율주행 (시뮬레이션 끔 — 트랙 테스트용)
@@ -140,7 +151,7 @@ launch 인자:
 | 인자 | 기본값 | 설명 |
 |---|---|---|
 | `lane_follow` | `false` | true면 차선 인식+추종 노드 실행(자율주행). teleop과 동시 사용 금지 |
-| `anomaly_delay_sec` | `10.0` | N초 후 운전자 이상 시뮬레이션. 0 이하 = 비활성 |
+| `anomaly_delay_sec` | `-1.0` | N초 후 운전자 이상 시뮬레이션(0 이하 = 비활성). 실제 감지는 VM 웹캠 노드 담당 |
 
 ## 토픽 계약
 
@@ -149,14 +160,14 @@ launch 인자:
 | `/camera/image_raw` | sensor_msgs/Image | camera_ros (640x480) | stella_hailo_rpi5_ros2_examples |
 | `/perception/obstacle_detected` | std_msgs/Bool | stella_hailo_rpi5_ros2_examples (Hailo-8 실추론) | safecar_control |
 | `/detection_image` | sensor_msgs/Image | stella_hailo_rpi5_ros2_examples | (디버그/대시보드용, 바운딩박스 영상) |
-| `/sensors/bio_anomaly` | std_msgs/Bool | safecar_comms | safecar_control |
+| `/sensors/bio_anomaly` | std_msgs/Bool | **VM의 driver_monitor_node** (웹캠, `cdp-remotepc` 레포) / 시뮬은 safecar_comms | safecar_control |
 | `/control/driving_state` | std_msgs/String | safecar_control | (대시보드/로깅용) |
 | `/perception/lane_offset` | std_msgs/Float32 | safecar_perception (차선 찾은 프레임만, -1~+1) | safecar_control (lane_follower) |
 | `/perception/lane_image` | sensor_msgs/Image | safecar_perception | (디버그/튜닝용, 차선 검출 시각화) |
 | `/cmd_vel_raw` | geometry_msgs/Twist | teleop(VM, remap 필수) 또는 lane_follower (동시 사용 금지) | safecar_control |
 | `/cmd_vel` | geometry_msgs/Twist | safecar_control (단일 게이트, 10Hz) | stella_md |
 | `/imu/yaw` | std_msgs/Float64 | stella_ahrs | stella_md |
-| `/scan` | sensor_msgs/LaserScan | ydlidar_ros | (필요 시 safecar_control, 갓길 공간 확보 판단용) |
+| `/scan` | sensor_msgs/LaserScan | ydlidar (360°, 7.6Hz, 0.12~10m) | safecar_control (lane_follower, MRM 모드 결정) |
 | `/odom` | nav_msgs/Odometry | stella_md | (대시보드/로깅용) |
 
 새 명령어 값이나 상태가 필요하면 `safecar/safecar_msgs/safecar_msgs/command_protocol.py`만 고치면 된다.

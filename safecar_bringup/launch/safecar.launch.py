@@ -16,11 +16,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # 운전자 이상신호 시뮬레이션 발동 시각(초). 기본 10초 뒤 이상 발생(데모용).
-        # 자유 주행/teleop 테스트 시에는 -1로 꺼야 10초 뒤 게이트가 주행을 차단하지 않는다:
-        #   ros2 launch safecar_bringup safecar.launch.py anomaly_delay_sec:=-1.0
+        # 운전자 이상신호 시뮬레이션 발동 시각(초).
+        # 실제 감지는 노트북 VM의 driver_monitor_node(cdp-remotepc 레포, 정수영)가 담당하므로
+        # 기본값은 비활성(-1.0)이다 — 켜두면 같은 토픽을 두 곳에서 발행해 신호가 싸운다.
+        # VM 없이 Pi 단독으로 갓길 대피(MRM)를 데모할 때만 켠다:
+        #   ros2 launch safecar_bringup safecar.launch.py lane_follow:=true anomaly_delay_sec:=10.0
         DeclareLaunchArgument(
-            'anomaly_delay_sec', default_value='10.0',
+            'anomaly_delay_sec', default_value='-1.0',
             description='N초 후 bio_anomaly=True 시뮬레이션. 0 이하면 비활성(항상 정상).'),
 
         # 차선 추종 자율주행 모드. true면 차선 인식 + 차선 추종 노드가 떠서

@@ -39,15 +39,15 @@ STELLA N1 차체 · Raspberry Pi 5 · Hailo-8 NPU 기반 ROS 2 자율주행 플�
 
 SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이어"** 를 얹은 프로젝트입니다.
 
-- **문제의식** — 자율주행 중 ① 운전자의 갑작스러운 건강 이상, ② 전방 장애물, ③ 주 연산장치(라즈베리파이) 자체 고장 같은 상황에서도 차량이 스스로 사고 없이 안전하게 대응해야 한다.
-- **핵심 아이디어** — NTREX STELLA 차체 위에 **인지(카메라·NPU) → 판단(제어) → 통신(센서)** 3계층 SafeCar 레이어를 추가하고, 실제 바퀴로 나가는 `/cmd_vel`을 **단일 안전 게이트**로 통제한다. 나아가 **소프트웨어(라즈베리파이)가 멈춰도 동작하는 하드웨어 최후 방어선(STM32 CAN watchdog)** 으로 안전을 이중화한다.
+- **문제의식** — 자율주행 중 ① 운전자의 갑작스러운 건강 이상, ② 전방 장애물, ③ 제어 스택 자체의 정지 같은 상황에서도 차량이 스스로 사고 없이 안전하게 대응해야 한다.
+- **핵심 아이디어** — NTREX STELLA 차체 위에 **인지(카메라·NPU) → 판단(제어) → 통신(센서)** 3계층 SafeCar 레이어를 추가하고, 실제 바퀴로 나가는 `/cmd_vel`을 **단일 안전 게이트**로 통제한다. 나아가 **스택이 멈춰도 동작하는 차체 드라이버 워치독**으로 안전을 이중화한다.
 - **3가지 안전 시나리오**
   - 🫀 **운전자 생체 이상** → 감속하며 우측 갓길로 이동 후 정차 (MRM 로직 구현)
   - 🚧 **전방 장애물** → Hailo NPU로 감지해 정지(동작 확인). 단순 정지를 넘어 여유 공간으로 **회피 주행** 하도록 개발 중
-  - ⚙️ **라즈베리파이 고장** → 정상신호가 끊기면 **STM32가 CAN으로 이어받아 서서히 정지** (개발 중)
+  - ⚙️ **스택 다운** → `/cmd_vel`이 0.5초 끊기면 **차체 드라이버가 스스로 모터 정지** (구현 완료)
 - **결과** — 실외 트랙에서 **OpenCV 기반 차선 추종 자율주행** 을 실제 소형 차체에서 end-to-end로 검증했고, **Hailo-8 NPU 장애물 감지 → 정지** 동작을 확인했다.
 
-`/cmd_vel` 게이트는 **전방 장애물(정지/회피) → 운전자 이상(갓길 대피) → 정상 주행** 순으로 가장 위급한 상황을 먼저 처리하며, 그 위에 소프트웨어가 죽어도 작동하는 STM32 하드웨어 watchdog을 이중으로 둔다.
+`/cmd_vel` 게이트는 **전방 장애물(정지) → 운전자 이상(갓길 대피) → 정상 주행** 순으로 가장 위급한 상황을 먼저 처리하고, 그 아래에 스택이 죽어도 동작하는 차체 드라이버 워치독을 이중으로 둔다.
 
 ---
 
@@ -74,7 +74,6 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 ![Raspberry Pi 5](https://img.shields.io/badge/Raspberry_Pi_5-A22846?logo=raspberrypi&logoColor=white)
 ![Camera Module 3](https://img.shields.io/badge/Camera_Module_3-imx708_(CSI)-6A1B9A)
 ![YDLIDAR X4](https://img.shields.io/badge/YDLIDAR-X4-1565C0)
-![STM32](https://img.shields.io/badge/STM32-CAN_watchdog-03234B?logo=stmicroelectronics&logoColor=white)
 
 | 분류 | 사용 기술 |
 |---|---|
@@ -83,7 +82,7 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 | 차체 드라이버 (모터 · IMU · LiDAR) | C++ |
 | 차선 인식 | OpenCV (HSV 마스크 + P/D 조향) |
 | 객체 인식 | Hailo-8 NPU, YOLOv8n (`.hef`) |
-| 센서 · MCU | Camera Module 3 (imx708/CSI), YDLIDAR X4, STM32 (CAN watchdog, 개발 중) |
+| 센서 | Camera Module 3 (imx708/CSI), YDLIDAR X4 (360°, 0.12~10m) |
 
 ---
 
@@ -100,25 +99,21 @@ flowchart LR
     OBJ -->|장애물| GATE
     BIO["🩺 운전자 생체신호"] -->|이상 신호| GATE
 
-    GATE["🧭 안전 게이트<br/>decision_maker"] -->|"/cmd_vel"| CAR["🚗 차체 · 모터"]
-    GATE -.->|heartbeat 정상신호| STM["⚙️ STM32 watchdog"]
-    STM -.->|신호 끊기면 직접 정지| CAR
+    LIDAR["📡 라이다"] -->|후방·측방 여유| DRIVE
+    GATE["🧭 안전 게이트<br/>decision_maker"] -->|"/cmd_vel"| CAR["🚗 차체 · 모터<br/>워치독 0.5s"]
 
     style GATE fill:#2b6cb0,stroke:#1a365d,color:#ffffff
-    style STM fill:#975a16,stroke:#5f370e,color:#ffffff
 ```
 
-> 모든 주행 명령은 **안전 게이트** 하나를 거쳐 바퀴로 나가고, 소프트웨어가 멈추면 **STM32**가 직접 멈춥니다.
+> 모든 주행 명령은 **안전 게이트** 하나를 거쳐 바퀴로 나가고, 스택이 멈추면 **차체 드라이버**가 직접 멈춥니다.
 
 ### 판단 로직 (decision_maker)
 
 ```mermaid
 flowchart LR
-    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> AV{"회피 여유공간?<br/>(LiDAR /scan, 개발 중)"}
-    AV -- 있음 --> AVOID["AVOID<br/>여유 방향으로 회피 주행"]
-    AV -- 없음 --> E["EMERGENCY_BRAKE<br/>급제동 (폴백)"]
-    A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly)"}
-    B -- 예 --> M["MRM_PULL_OVER<br/>갓길 대피 (감속 후 정차)"]
+    A{"전방 장애물?<br/>(obstacle_detected)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지"]
+    A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
+    B -- 예 --> M["MRM_PULL_OVER<br/>라이다로 모드 결정 후 대피"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
 ```
 
@@ -134,3 +129,14 @@ flowchart LR
 - **Ultra-Fast-Lane-Detection (UFLD)** — 딥러닝 차선 인식 (실험) · https://github.com/cfzd/Ultra-Fast-Lane-Detection
 - **YOLOv8 (Ultralytics)** — 객체 인식 모델 · https://github.com/ultralytics/ultralytics
 - **ROS 2 Jazzy 공식 문서** · https://docs.ros.org/en/jazzy/
+
+### 안전 규격 · 선행기술
+
+MRM(최소위험동작)과 운전자 상태 감시(DMS) 설계의 근거 문헌.
+
+- **KR 공개특허 10-2024-0073259** — 「자율주행을 위한 MRM(최소위험동작) 장치와 방법 및 MRM 모드 결정 방법」, 한국전자통신연구원(ETRI), 2024.05.27 공개 (출원 10-2022-0154383)
+  → MRM 6모드 정의와 모드 결정 플로우(청구항 13~16). 본 프로젝트는 이 중 **비상정차·직진정차·자차로정차·우차로정차** 4개를 구현.
+- **UN Regulation No. 157 (ALKS)** — 최소위험조작의 규제상 정의, 정차 후 수동 입력 전 재출발 금지 · https://unece.org/sites/default/files/2025-06/R157r1e.pdf
+- **EU 2021/1341 (DDAW)** — 졸음 경고 의무 기준(KSS 8 이상) · https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32021R1341
+- **Euro NCAP 2026 프로토콜** — 연속 눈·머리 추적, 무반응 운전자 대응 가점 · https://www.euroncap.com/press-media/euro-ncap-announces-2026-protocol-changes-to-tackle-modern-driving-risks/
+- **PERCLOS** (Wierwille et al., NHTSA) — 눈 감김 비율 기반 졸음 지표(P80) · https://rosap.ntl.bts.gov/view/dot/113

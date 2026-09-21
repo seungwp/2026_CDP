@@ -36,11 +36,11 @@ def generate_launch_description():
         'ahrs_pkg_dir',
         default=os.path.join(get_package_share_directory('stella_ahrs'), 'launch'))
 
-    # 라이다 미사용(2026-08-04): YDLIDAR 비활성화. 근접정지 기능을 다시 붙일 때
-    # 아래 변수와 include 블록의 주석을 해제하면 된다.
-    # ydlidar_pkg_dir = LaunchConfiguration(
-    #     'ydlidar_pkg_dir',
-    #     default=os.path.join(get_package_share_directory('ydlidar'), 'launch'))
+    # 라이다 복구(2026-09-20): 갓길 대피(MRM) 전에 후방/갓길쪽 공간을 확인하는 데 쓴다.
+    # (2026-08-04 미사용으로 껐다가 되살림)
+    ydlidar_pkg_dir = LaunchConfiguration(
+        'ydlidar_pkg_dir',
+        default=os.path.join(get_package_share_directory('ydlidar'), 'launch'))
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
 
@@ -66,8 +66,8 @@ def generate_launch_description():
             PythonLaunchDescriptionSource([ahrs_pkg_dir, '/stella_ahrs_launch.py']),
         ),
 
-        # YDLIDAR X4 (단일 라이다, /scan publish) — 라이다 미사용으로 비활성화(2026-08-04).
-        # IncludeLaunchDescription(
-        #     PythonLaunchDescriptionSource([ydlidar_pkg_dir, '/ydlidar_launch.py']),
-        # ),
+        # YDLIDAR X4 (단일 라이다, /scan publish, 360° 10Hz)
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([ydlidar_pkg_dir, '/ydlidar_launch.py']),
+        ),
     ])
