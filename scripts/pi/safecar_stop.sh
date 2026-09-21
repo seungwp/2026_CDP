@@ -23,7 +23,11 @@ if [ "$1" = "all" ]; then
     pkill -f image_serv""er
     pkill -f stella_m""d
     pkill -9 -f ydlidar""_node        # 라이다 모터도 같이 멈춘다
-    pkill -9 -f "ros2 launch ydlida""r"
+    pkill -9 -f stella_ahrs""_node
+    pkill -9 -f joint_state_pub""lisher
+    pkill -9 -f robot_state_pub""lisher
+    # 통합 런치로 띄운 경우 부모(ros2 launch)가 살아있으면 자식이 남는다
+    pkill -9 -f "ros2 lau""nch"
     echo "[stop] 카메라/인지/모터드라이버까지 전부 종료"
 fi
 
