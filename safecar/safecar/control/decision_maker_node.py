@@ -70,6 +70,10 @@ class DecisionMakerNode(Node):
 
         self.create_subscription(Bool, '/sensors/bio_anomaly', self._on_bio_anomaly, 10)
         self.create_subscription(Bool, '/perception/obstacle_detected', self._on_obstacle_detected, 10)
+        # 사람의 비상정지(휴대폰 web_teleop). 마지막 값을 유지한다 — 비상정지 중에 폰이나
+        # web_teleop이 죽어도 명시적으로 False가 오기 전까지는 계속 멈춰 있는다.
+        self.estop = False
+        self.create_subscription(Bool, '/control/estop', self._on_estop, 10)
         self.create_subscription(Twist, '/cmd_vel_raw', self._on_cmd_vel_raw, 10)
         # camera_info는 영상 프레임마다 같이 오는 작은 메시지라 카메라 심장박동으로 쓴다.
         self.create_subscription(CameraInfo, '/camera/camera_info', self._on_camera_info,
@@ -89,6 +93,12 @@ class DecisionMakerNode(Node):
         if msg.data and not self.bio_anomaly and self.bio_latch:
             self.get_logger().warn('운전자 이상 래치 — 재시작 전까지 해제되지 않는다')
         self.bio_anomaly = msg.data
+
+    def _on_estop(self, msg):
+        if msg.data != self.estop:
+            (self.get_logger().warn if msg.data else self.get_logger().info)(
+                '사람 비상정지 — 정지' if msg.data else '사람 비상정지 해제')
+        self.estop = msg.data
 
     def _on_obstacle_detected(self, msg):
         self.obstacle_detected = msg.data
@@ -130,7 +140,8 @@ class DecisionMakerNode(Node):
         self.last_raw_time = self.get_clock().now()
 
     def _decide_and_publish(self):
-        command = self.decision_maker.decide(self.bio_anomaly, self._judge_obstacle())
+        # 사람 비상정지는 장애물과 같은 최우선 정지(EMERGENCY_BRAKE)로 처리한다
+        command = self.decision_maker.decide(self.bio_anomaly, self._judge_obstacle() or self.estop)
 
         state_msg = String()
         state_msg.data = command
