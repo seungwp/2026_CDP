@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""휴대폰 브라우저 조종기 + 비상정지 버튼.
+"""휴대폰 브라우저 조종기 — 모방학습 데이터 녹화용 아날로그 조향.
 
 키보드 teleop은 조향이 계단식이라 라벨 품질이 나쁘다. 이 스크립트는 휴대폰 화면을
 조이스틱처럼 쓴다: **누르고 있는 동안 고정 속도로 전진, 손가락 좌우 위치만큼 조향.**
 손을 떼면 즉시 정지. (DonkeyCar의 웹 컨트롤러와 같은 방식)
 
-화면 위의 **빨간 비상정지 버튼**은 누르는 즉시 걸리고, 1초 길게 눌러야 풀린다.
-- 수동 주행(게이트 없음): 이 스크립트가 조종 토픽으로 0을 계속 보낸다.
-- 자율주행(게이트 있음): '/control/estop'(Bool)을 보내 decision_maker가 EMERGENCY_BRAKE로 막는다.
-  자율주행 중 차가 코스를 벗어날 때 휴대폰으로 세우는 용도. (이때 조종판은 만지지 말 것 —
-  조종 명령이 차선 추종 명령과 섞인다)
+화면 위에 Pi 연결 상태를 표시한다(끊기면 빨간 경고).
 
 사용 (Pi):
-    ros2 launch safecar manual_drive.launch.py          # 터미널 1 (또는 ~/safecar_start.sh)
+    ros2 launch safecar manual_drive.launch.py          # 터미널 1
     python3 ~/2026_CDP/scripts/web_teleop.py            # 터미널 2
     python3 ~/2026_CDP/scripts/record_dataset.py        # 터미널 3 (녹화)
 휴대폰 (Pi와 같은 핫스팟):  http://raspberrypi.local:8000/
@@ -26,13 +22,12 @@
 - HTTP 요청은 순서가 뒤바뀌거나 폰에 밀려 쌓일 수 있다. 순번으로 옛 요청을 버리고,
   앞 요청이 끝나야 다음 전진을 보낸다(손을 뗐는데 밀린 '전진'이 도착해 안 멈추던 문제).
 - 조종하지 않을 때는 조종 토픽에 **아무것도 발행하지 않는다**(안전 게이트와 싸우지 않게).
-  발행이 멈추면 stella_md 워치독(0.5초)이 모터를 세운다. 비상정지 중에는 0을 계속 보낸다.
+  발행이 멈추면 stella_md 워치독(0.5초)이 모터를 세운다.
 
 로직만 확인하려면:  python3 scripts/web_teleop.py --selftest
 """
 
 import argparse
-import json
 import sys
 import threading
 import time
@@ -51,34 +46,28 @@ html,body{margin:0;height:100%;background:#111;color:#eee;font-family:-apple-sys
   overflow:hidden;overscroll-behavior:none;position:fixed;inset:0}
 body{display:flex;flex-direction:column;height:100dvh;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-#estop{flex:none;margin:6px 6px 0;height:76px;border:0;border-radius:12px;font-size:26px;font-weight:700;
-  color:#fff;background:#c62828;touch-action:none;position:relative;overflow:hidden}
-#estop.on{background:#6a1b9a}
-#hold{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.3)}
 #link{flex:none;text-align:center;font-size:14px;padding:4px;color:#8bc34a}
 #link.bad{color:#fff;background:#b71c1c;font-size:18px}
 #cam{display:block;width:100%;max-height:30dvh;object-fit:contain;background:#000;flex:none}
 #pad{position:relative;flex:1;min-height:0;touch-action:none;border-radius:12px;margin:6px;
      background:linear-gradient(90deg,#1c2a3a,#222 50%,#1c2a3a)}
-#pad.off{opacity:.3}
 #mid{position:absolute;left:50%;top:0;bottom:0;border-left:2px dashed #555}
 #dot{position:absolute;top:50%;width:64px;height:64px;margin:-32px;border-radius:50%;
      background:#555;left:50%;transition:background .1s;pointer-events:none}
 #info{position:absolute;top:10px;width:100%;text-align:center;font-size:18px;pointer-events:none}
 </style></head><body>
-<button id="estop"><div id="hold"></div><span id="elabel">비상정지</span></button>
 <div id="link">연결 확인 중...</div>
 <img id="cam" src="" alt="" draggable="false">
 <div id="pad"><div id="mid"></div><div id="dot"></div>
 <div id="info">누르고 있으면 전진 · 좌우로 조향 · 떼면 정지</div></div>
 <script>
 const $=id=>document.getElementById(id);
-const pad=$('pad'),dot=$('dot'),info=$('info'),cam=$('cam'),eb=$('estop'),elabel=$('elabel'),hold=$('hold'),link=$('link');
+const pad=$('pad'),dot=$('dot'),info=$('info'),cam=$('cam'),link=$('link');
 cam.src='http://'+location.hostname+':{cam_port}/stream';
 cam.onerror=()=>{cam.style.display='none'};
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});  // 튕김·스크롤 방지
 
-let steer=0,down=false,timer=null,seq=0,inflight=false,estop=false;
+let steer=0,down=false,timer=null,seq=0,inflight=false;
 const sid=Math.random().toString(36).slice(2);   // 탭마다 다른 id — 새로고침하면 순번을 새로 센다
 // 전진 요청은 앞 요청이 끝나야 다음을 보낸다. 안 그러면 Wi-Fi가 느릴 때 요청이 폰에 쌓이고,
 // 손을 뗀 뒤에도 밀린 '전진'이 몇 초씩 도착해 차가 안 멈춘다(실제로 겪음). 정지는 항상 즉시 보낸다.
@@ -91,7 +80,7 @@ function send(go){
 function pos(e){const r=pad.getBoundingClientRect();
   steer=Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width)*2-1));
   dot.style.left=((steer+1)/2*100)+'%';info.textContent='조향 '+steer.toFixed(2);}
-pad.addEventListener('pointerdown',e=>{if(estop)return;pad.setPointerCapture(e.pointerId);down=true;pos(e);
+pad.addEventListener('pointerdown',e=>{pad.setPointerCapture(e.pointerId);down=true;pos(e);
   dot.style.background='#2e8b57';send(true);timer=setInterval(()=>send(true),50);});
 pad.addEventListener('pointermove',e=>{if(down)pos(e);});
 function up(){if(!down)return;down=false;clearInterval(timer);steer=0;
@@ -104,39 +93,23 @@ window.addEventListener('blur',up);window.addEventListener('pagehide',up);
 document.addEventListener('touchend',e=>{if(e.touches.length===0)up();});
 document.addEventListener('touchcancel',up);
 
-// ---- 비상정지: 누르면 즉시 걸림, 1초 길게 눌러야 해제 ----
-function render(){eb.classList.toggle('on',estop);pad.classList.toggle('off',estop);
-  elabel.textContent=estop?'비상정지 중 — 1초 길게 눌러 해제':'비상정지';}
-function setEstop(on){estop=on;render();if(on)up();
-  fetch('/estop?on='+(on?1:0),{cache:'no-store'}).catch(()=>{});}
-let holdT=null;
-eb.addEventListener('pointerdown',e=>{
-  if(!estop){setEstop(true);return;}
-  hold.style.transition='width 1s linear';hold.style.width='100%';
-  holdT=setTimeout(()=>{setEstop(false);hold.style.transition='none';hold.style.width='0';},1000);});
-function cancelHold(){clearTimeout(holdT);hold.style.transition='none';hold.style.width='0';}
-eb.addEventListener('pointerup',cancelHold);eb.addEventListener('pointercancel',cancelHold);
-eb.addEventListener('pointerleave',cancelHold);
-
-// ---- Pi 연결 상태 (0.5초마다). 새로고침해도 비상정지 상태를 Pi에서 받아온다 ----
+// ---- Pi 연결 상태 (0.5초마다) ----
 setInterval(()=>{
   const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),800);
-  fetch('/state',{cache:'no-store',signal:ctl.signal}).then(r=>r.json()).then(s=>{
+  fetch('/state',{cache:'no-store',signal:ctl.signal}).then(r=>{
     clearTimeout(t);link.className='';link.textContent='Pi 연결됨';
-    if(s.estop!==estop){estop=s.estop;render();}
   }).catch(()=>{link.className='bad';link.textContent='⚠ Pi 연결 끊김 — 차가 곧 스스로 정지';});
 },500);
-render();
 </script></body></html>"""
 
 
-def command(go, steer, age, speed, max_steer, timeout, estop=False):
-    """휴대폰 입력 → (linear_x, angular_z). 비상정지·손 뗌·신호 끊김이면 정지.
+def command(go, steer, age, speed, max_steer, timeout):
+    """휴대폰 입력 → (linear_x, angular_z). 손 뗌·신호 끊김이면 정지.
 
     steer는 화면 위치 -1(왼쪽 끝)~+1(오른쪽 끝). REP-103에서 angular.z +는 좌회전이므로
     오른쪽으로 밀면 음수가 되도록 부호를 뒤집는다.
     """
-    if estop or not go or age > timeout:
+    if not go or age > timeout:
         return 0.0, 0.0
     steer = max(-1.0, min(1.0, steer))
     return speed, -steer * max_steer
@@ -167,7 +140,6 @@ def _self_check():
     assert command(True, 5.0, 0.0, **base) == (0.15, -0.8)         # 범위 밖 입력은 잘라낸다
     assert command(False, 0.7, 0.0, **base) == (0.0, 0.0)          # 손 뗌 = 정지
     assert command(True, 0.7, 0.5, **base) == (0.0, 0.0)           # 신호 끊김 = 정지
-    assert command(True, 0.7, 0.0, estop=True, **base) == (0.0, 0.0)  # 비상정지가 조종보다 우선
     print('web_teleop self-check OK')
 
 
@@ -175,7 +147,6 @@ def main():
     import rclpy
     from geometry_msgs.msg import Twist
     from rclpy.node import Node
-    from std_msgs.msg import Bool
 
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8000)
@@ -186,7 +157,7 @@ def main():
     ap.add_argument('--topic', default='/cmd_vel')
     args = ap.parse_args()
 
-    state = {'go': False, 'steer': 0.0, 't': 0.0, 'last': None, 'estop': False}
+    state = {'go': False, 'steer': 0.0, 't': 0.0, 'last': None}
     lock = threading.Lock()
     page = PAGE.replace('{cam_port}', str(args.cam_port)).encode('utf-8')
 
@@ -219,14 +190,8 @@ def main():
                     if accept(state['last'], sid, seq):
                         state.update(go=go, steer=steer, t=time.monotonic(), last=(sid, seq))
                 self._reply(204)
-            elif url.path == '/estop':
-                with lock:
-                    state['estop'] = q.get('on', ['1'])[0] != '0'   # 값이 이상하면 '걸림'으로 본다
-                self._reply(204)
             elif url.path == '/state':
-                with lock:
-                    body = json.dumps({'estop': state['estop']}).encode()
-                self._reply(200, body, 'application/json')
+                self._reply(204)   # 연결 확인용
             else:
                 self._reply(200, page, 'text/html; charset=utf-8')
 
@@ -234,29 +199,21 @@ def main():
         def __init__(self):
             super().__init__('web_teleop')
             self.pub = self.create_publisher(Twist, args.topic, 10)
-            # decision_maker가 구독한다 — 자율주행 중에도 휴대폰으로 세우기 위한 것
-            self.estop_pub = self.create_publisher(Bool, '/control/estop', 10)
             self.stop_left = 0   # 정지 후 몇 번 더 0을 보낼지
             self.moving = False
-            self.estop = False
             self.create_timer(0.05, self._tick)  # 20Hz
 
         def _tick(self):
             with lock:
-                go, steer, t, estop = state['go'], state['steer'], state['t'], state['estop']
-            self.estop_pub.publish(Bool(data=estop))
-            if estop != self.estop:
-                self.estop = estop
-                (self.get_logger().warn if estop else self.get_logger().info)(
-                    '비상정지!' if estop else '비상정지 해제')
+                go, steer, t = state['go'], state['steer'], state['t']
 
             age = time.monotonic() - t
-            lin, ang = command(go, steer, age, args.speed, args.max_steer, args.timeout, estop)
+            lin, ang = command(go, steer, age, args.speed, args.max_steer, args.timeout)
             if (lin != 0.0) != self.moving:
                 self.moving = lin != 0.0
                 why = '' if self.moving else (' (손 뗌)' if not go else f' (폰 신호 {age:.1f}초 끊김)')
                 self.get_logger().info('전진' if self.moving else f'정지{why}')
-            if lin == 0.0 and not estop:
+            if lin == 0.0:
                 if self.stop_left <= 0:
                     return  # 정지 상태에서는 발행하지 않는다(게이트와 싸우지 않게)
                 self.stop_left -= 1
