@@ -27,6 +27,7 @@ setup(
             'vision_detector_node = safecar.perception.vision_detector_node:main',
             'decision_maker_node = safecar.control.decision_maker_node:main',
             'lane_follower_node = safecar.control.lane_follower_node:main',
+            'bc_follower_node = safecar.control.bc_follower_node:main',
             'sensor_bridge_node = safecar.comms.sensor_bridge_node:main',
         ],
     },

@@ -65,6 +65,7 @@ Pi 홈에 있는 스크립트 4개로 대부분의 작업이 됩니다(원본은
 ~/safecar_start.sh              # 차체+카메라+차선인식+게이트+영상 전부 켜기
 ~/safecar_drive.sh              # 주행 시작 (Ctrl+C로 정지)
 ~/safecar_drive.sh 0.15 0.7 0.4 # 속도 / 조향게인 / 헤딩게인 바꿔서
+~/safecar_drive.sh bc           # 모방학습 모델(~/bc_model.onnx)로 주행 — 학습 절차는 scripts/train_bc.py 주석
 ~/safecar_stop.sh               # 비상 정지 (제어만)
 ~/safecar_stop.sh all           # 카메라까지 전부 끔
 ```

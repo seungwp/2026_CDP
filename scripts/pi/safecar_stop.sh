@@ -9,7 +9,9 @@
 source /home/pi/safecar_env.sh
 
 LF="lane_follow""er_node"
+BC="bc_follow""er_node"
 pkill -9 -f "$LF"
+pkill -9 -f "$BC"
 # 게이트는 /cmd_vel_raw가 1초 끊기면 스스로 0을 내지만, 기다리지 않고 바로 0을 쏜다.
 ros2 topic pub -t 5 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" > /dev/null 2>&1
 echo "[stop] 주행 정지"
