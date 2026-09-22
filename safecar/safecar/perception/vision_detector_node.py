@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
@@ -17,6 +17,11 @@ class VisionDetectorNode(Node):
     - '/perception/lane_image' (Image): 검출 선분/차로 중심이 그려진 디버그 영상 (튜닝용).
     - 장애물 인식은 이 노드가 아니라 Hailo NPU 노드가 '/perception/obstacle_detected'로 담당.
 
+    '/control/mrm_mode'가 '우차로정차'가 되면 흰 차선 대신 갓길(노란 테이프)을 보도록
+    전환한다(lane_follower가 결정해서 publish — decision_maker의 '/control/driving_state'만
+    보면 자차로정차/우차로정차를 구분할 수 없어서 따로 받는다). 같은 '/perception/lane_offset'
+    토픽을 계속 쓴다 — MRM 중엔 그 값이 '갓길선까지의 오프셋'이라는 뜻이 된다.
+
     카메라 자체는 이 노드가 열지 않는다 — camera_ros(camera_node)가 열어서
     '/camera/image_raw'로 publish하고, 이 노드는 구독만 한다.
     """
@@ -26,11 +31,21 @@ class VisionDetectorNode(Node):
         self.detector = VisionDetector()
         self.bridge = CvBridge()
         self.lane_visible = False
+        self.shoulder_mode = False
 
         self.offset_pub = self.create_publisher(Float32, '/perception/lane_offset', 10)
         self.heading_pub = self.create_publisher(Float32, '/perception/lane_heading', 10)
         self.debug_pub = self.create_publisher(Image, '/perception/lane_image', 10)
         self.create_subscription(Image, '/camera/image_raw', self._on_image, 10)
+        self.create_subscription(String, '/control/mrm_mode', self._on_mrm_mode, 10)
+
+    def _on_mrm_mode(self, msg):
+        active = (msg.data == '우차로정차')
+        if active != self.shoulder_mode:
+            self.shoulder_mode = active
+            self.detector.set_shoulder_mode(active)
+            self.get_logger().warn(
+                '갓길(노란선) 추적 시작' if active else '흰 차선 추적으로 복귀')
 
     def _on_image(self, msg):
         try:

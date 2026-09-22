@@ -48,9 +48,12 @@ class LaneFollowerNode(Node):
         self.declare_parameter('steer_head_gain', 0.25)
 
         # --- 갓길 대피(MRM) 프로파일 ---
-        # mrm_lateral_bias: 대피 목표 횡위치. **양수 = 우측**. 0.0이면 횡이동 없이
-        # 차로 안에서 그대로 정지 — 이게 UN R157의 기본 MRM이다. 본 차량은 후방 감시
-        # 센서가 없어 차선 변경형 대피를 할 자격이 없으므로, 0.5는 '후방 교통 없는
+        # mrm_lateral_bias: 우차로정차를 켤지 끄는 스위치. 0.0이면 무조건 차로 안에서
+        # 그대로 정지(자차로정차) — 이게 UN R157의 기본 MRM이다. 0이 아니면(값 자체는
+        # 더 이상 안 씀) _decide_mrm_mode가 라이다로 후방·우측 여유를 보고 우차로정차를
+        # 시도한다. 실제 조향은 이 숫자가 아니라 갓길(노란 테이프) 실시간 인식이 맡는다
+        # (vision_detector.set_shoulder_mode, _mrm_cmd 참고). 본 차량은 후방 감시 센서가
+        # 없어 차선 변경형 대피를 할 자격이 없으므로, 0이 아닌 값은 '후방 교통 없는
         # 폐쇄 트랙'이라는 ODD 안에서만 쓴다. ODD를 벗어나면 0.0으로 되돌릴 것.
         self.declare_parameter('mrm_lateral_bias', 0.5)
         self.declare_parameter('mrm_transition_time', 3.0)  # 갓길로 붙는 시간(초)
@@ -111,6 +114,9 @@ class LaneFollowerNode(Node):
         # 자차로정차'로 떨어지고 있었다.
         self.create_subscription(LaserScan, '/scan', self._on_scan, qos_profile_sensor_data)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_raw', 10)
+        # vision_detector_node가 이걸 보고 우차로정차일 때만 갓길(노란선) 추적으로 바꾼다.
+        # driving_state만으로는 자차로정차/우차로정차를 구분 못 해서 따로 publish한다.
+        self.mrm_mode_pub = self.create_publisher(String, '/control/mrm_mode', 10)
         self.create_timer(0.05, self._on_timer)  # 20Hz
 
     def _on_offset(self, msg):
@@ -221,6 +227,7 @@ class LaneFollowerNode(Node):
             )
             self.mrm_mode, self.mrm.lateral_bias = self._decide_mrm_mode(lane_fresh)
             self.mrm_start_time = self.get_clock().now()
+            self.mrm_mode_pub.publish(String(data=self.mrm_mode))
             self.get_logger().warn(f'운전자 이상 — MRM 시작 ({self.mrm_mode})')
         # NORMAL일 때만 해제한다. EMERGENCY_BRAKE(장애물·인지 끊김)는 MRM 도중에도 잠깐 끼어들
         # 수 있는데, 그걸 해제로 보면 장애물이 사라진 뒤 프로파일이 0초부터 다시 시작돼
@@ -229,6 +236,7 @@ class LaneFollowerNode(Node):
         elif msg.data == COMMAND_NORMAL and self.mrm_start_time is not None:
             self.mrm_start_time = None
             self.mrm_mode = None
+            self.mrm_mode_pub.publish(String(data=''))  # vision_detector: 흰 차선으로 복귀
             self.get_logger().info('MRM 해제 — 정상 주행 복귀')
 
     def _on_timer(self):
@@ -258,21 +266,25 @@ class LaneFollowerNode(Node):
         self.cmd_pub.publish(cmd)
 
     def _mrm_cmd(self, lane_fresh):
-        """갓길 대피 주행 명령. 차선을 잃어도 중단하지 않고 프로파일을 끝까지 수행한다."""
+        """갓길 대피 주행 명령. 차선을 잃어도 중단하지 않고 프로파일을 끝까지 수행한다.
+
+        우차로정차 중에는 vision_detector가 '/control/mrm_mode'를 보고 흰 차선 대신
+        갓길(노란 테이프)을 추적하도록 이미 전환해뒀다 — 그래서 여기서는 오프셋에 가짜
+        bias를 더해 속이지 않는다. last_offset이 이제 '갓길선까지의 오프셋'이므로,
+        평소 차선 추종과 똑같이 그 값을 0으로 만들면(= 갓길선에 정렬하면) 저절로
+        갓길로 붙는다. MrmProfile은 속도 감속 곡선(1.0→speed_ratio→0)에만 쓴다.
+        """
         elapsed = (self.get_clock().now() - self.mrm_start_time).nanoseconds * 1e-9
-        speed_scale, bias = self.mrm.compute(elapsed)
+        speed_scale, _ = self.mrm.compute(elapsed)
 
         cmd = Twist()
         cmd.linear.x = self.cruise_speed * speed_scale
         if lane_fresh:
-            # 차선이 보이면 '차로 중심이 bias만큼 오른쪽에 있다'고 속여 그쪽으로 붙인다.
-            # 차가 실제로 치우치면 measured offset이 반대로 움직여 상쇄되므로,
-            # bias에 비례한 위치에서 균형을 잡는다(개루프 조향보다 안정적).
-            cmd.angular.z = -(self.steer_gain * (self.last_offset + bias)
+            cmd.angular.z = -(self.steer_gain * self.last_offset
                               + self.steer_head_gain * self.last_heading)
         else:
-            # 차로를 벗어나 차선을 잃은 상태. 마지막 오프셋을 계속 믿으면 그대로 돌아버리므로
-            # 조향을 끊고 직진으로 감속만 이어간다.
+            # 추종 대상(흰 차선 또는 갓길선)을 잃은 상태. 마지막 오프셋을 계속 믿으면
+            # 그대로 돌아버리므로 조향을 끊고 직진으로 감속만 이어간다.
             cmd.angular.z = 0.0
         return cmd
 

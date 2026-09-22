@@ -61,7 +61,26 @@ class VisionDetector:
         self._last_center = None  # 직전 프레임에서 따라가던 선의 x (선 바꿔타기 방지)
         self._coast = 0           # 게이트 밖 후보만 있어 직전 값으로 버틴 프레임 수
         self._last_heading = 0.0  # 추종 중인 선의 기울기(헤딩 오차)
+        # 인스턴스 값으로 복사해둔다 — set_shoulder_mode()가 여기만 바꾸고
+        # 클래스 상수(USE_WHITE/USE_YELLOW)는 "평소 설정값"으로 그대로 둔다.
+        self.use_white = self.USE_WHITE
+        self.use_yellow = self.USE_YELLOW
         print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
+
+    def set_shoulder_mode(self, active):
+        """MRM 우차로정차 동안 흰 차선 대신 갓길(노란 테이프)을 보게 전환한다.
+
+        새 추적 로직을 만들지 않고 기존 단일선 추종을 그대로 재사용한다 — 색만 바꾼다.
+        전환 순간 추종 상태를 리셋한다. 안 그러면 MAX_JUMP_PX 게이트가 '색이 바뀐 새
+        선'을 옛 선과 다른 위치라며 몇 프레임 동안 거부한다(불필요한 지연).
+        """
+        if active:
+            self.use_white, self.use_yellow = False, True
+        else:
+            self.use_white, self.use_yellow = self.USE_WHITE, self.USE_YELLOW
+        self._last_center = None
+        self._coast = 0
+        self._last_heading = 0.0
 
     def process_frame(self, frame):
         """(디버그 프레임, 오프셋, 헤딩오차)를 반환한다. 차선을 못 찾으면 뒤 둘은 None.
@@ -75,9 +94,9 @@ class VisionDetector:
         # 1. 차선 색 마스크 (노란 테이프, 실측 기준으로 여유 있게)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        if self.USE_YELLOW:
+        if self.use_yellow:
             mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
-        if self.USE_WHITE:
+        if self.use_white:
             mask_white = cv2.inRange(hsv, np.array([0, 0, self.WHITE_V_MIN]),
                                      np.array([180, self.WHITE_S_MAX, 255]))
             mask = cv2.bitwise_or(mask, mask_white)
