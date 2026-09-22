@@ -22,6 +22,11 @@ class LaneFollowerNode(Node):
     갓길 대피(MRM): '/control/driving_state'가 MRM_PULL_OVER가 되면 MrmProfile에 따라
     횡방향으로 치우치며 감속 → 정지한다. 게이트(decision_maker)는 MRM 동안 이 노드의
     명령을 그대로 통과시키므로, 실제 대피 주행을 만드는 건 이 노드다.
+
+    drive_normal=false로 띄우면 평소(NORMAL) 주행은 발행하지 않고 MRM 때만 나선다 —
+    bc_follower_node(모방학습)를 평소 운전자로 쓰고, 이 노드는 MRM 전용 대역으로
+    같이 띄울 때 쓴다(safecar_drive.sh bc가 이렇게 띄운다). 둘 다 '/cmd_vel_raw'에
+    발행하지만 driving_state를 보고 한쪽만 활성화되므로 서로 싸우지 않는다.
     """
 
     def __init__(self):
@@ -46,6 +51,8 @@ class LaneFollowerNode(Node):
         # 곡선에서 0.5 rad/s가 추가되는데, 그날 안정 범위는 최대 0.17이었다.
         # 그래서 0.25에서 시작하고 곡선을 보며 올린다.
         self.declare_parameter('steer_head_gain', 0.25)
+        # false면 평소(NORMAL) 주행은 발행하지 않고 MRM일 때만 나선다 — 클래스 docstring 참고.
+        self.declare_parameter('drive_normal', True)
 
         # --- 갓길 대피(MRM) 프로파일 ---
         # mrm_lateral_bias: 우차로정차를 켤지 끄는 스위치. 0.0이면 무조건 차로 안에서
@@ -82,6 +89,7 @@ class LaneFollowerNode(Node):
         self.offset_timeout = self.get_parameter('offset_timeout').value
         self.offset_smoothing = self.get_parameter('offset_smoothing').value
         self.steer_head_gain = self.get_parameter('steer_head_gain').value
+        self.drive_normal = self.get_parameter('drive_normal').value
         self.mrm_lateral_bias = self.get_parameter('mrm_lateral_bias').value
         self.mrm = MrmProfile(
             lateral_bias=self.mrm_lateral_bias,
@@ -249,6 +257,9 @@ class LaneFollowerNode(Node):
         if self.mrm_start_time is not None:
             self.cmd_pub.publish(self._mrm_cmd(fresh))
             return
+
+        if not self.drive_normal:
+            return  # MRM 전용 모드 — 평소엔 다른 노드(bc_follower 등)가 몰고, 여긴 조용히 대기
 
         if fresh != self.following:
             if fresh:

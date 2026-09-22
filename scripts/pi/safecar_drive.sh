@@ -17,10 +17,17 @@ source /home/pi/safecar_env.sh
 if [ "$1" = "bc" ]; then
     SPEED="${2:-0.15}"
     SCALE="${3:-1.0}"
-    echo "모방학습 주행 — 속도 $SPEED m/s, 조향배율 $SCALE   (Ctrl+C 로 정지)"
+    echo "모방학습 주행 + MRM 갓길정차(노란선 인식) — 속도 $SPEED m/s, 조향배율 $SCALE   (Ctrl+C 로 정지)"
     echo "멈춘 뒤 차가 계속 가면 다른 터미널에서: ~/safecar_stop.sh"
-    exec ros2 run safecar bc_follower_node --ros-args \
+    # 평소엔 bc_follower가 몰고, 운전자 이상 신호가 오면 lane_follower가 조용히 이어받아
+    # 노란 갓길선으로 붙는다(drive_normal:=false라 평소엔 아무것도 안 냄) — 둘 다 같은
+    # driving_state를 보고 한쪽만 활성화되므로 /cmd_vel_raw를 두고 싸우지 않는다.
+    ros2 run safecar lane_follower_node --ros-args -p drive_normal:=false &
+    LF_PID=$!
+    trap 'kill -9 "$LF_PID" 2>/dev/null' EXIT
+    ros2 run safecar bc_follower_node --ros-args \
         -p cruise_speed:="$SPEED" -p steer_scale:="$SCALE"
+    exit
 fi
 SPEED="${1:-0.15}"   # 0.12 미만이면 정지 마찰 때문에 안 움직인다
 GAIN="${2:-0.55}"
