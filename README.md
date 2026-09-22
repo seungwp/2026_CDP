@@ -137,5 +137,11 @@ MRM(최소위험동작)과 운전자 상태 감시(DMS) 설계의 근거 문헌.
   → MRM 6모드 정의와 모드 결정 플로우(청구항 13~16). 본 프로젝트는 이 중 **비상정차·직진정차·자차로정차·우차로정차** 4개를 구현.
 - **UN Regulation No. 157 (ALKS)** — 최소위험조작의 규제상 정의, 정차 후 수동 입력 전 재출발 금지 · https://unece.org/sites/default/files/2025-06/R157r1e.pdf
 - **EU 2021/1341 (DDAW)** — 졸음 경고 의무 기준(KSS 8 이상) · https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32021R1341
-- **Euro NCAP 2026 프로토콜** — 연속 눈·머리 추적, 무반응 운전자 대응 가점 · https://www.euroncap.com/press-media/euro-ncap-announces-2026-protocol-changes-to-tackle-modern-driving-risks/
+- **Euro NCAP, "Safe Driving — Driver Engagement" Protocol, Version 1.1, October 2025**, §1.3.3–1.3.5 · https://cdn.euroncap.com/cars/assets/euro_ncap_protocol_safe_driving_driver_engagement_v11_a30e874152.pdf
+  → 원문 대조 완료. Microsleep(1~2초)·Sleep(≥3초)·Unresponsive(≥6초) 판정 시간이 `driver_monitor/drowsy_v5.py`의 상수(`MICROSLEEP_SEC`/`SLEEP_SEC`/`UNRESPONSIVE_SEC`) 그대로다.
 - **PERCLOS** (Wierwille et al., NHTSA) — 눈 감김 비율 기반 졸음 지표(P80) · https://rosap.ntl.bts.gov/view/dot/113
+
+### 모방학습(behavior cloning)
+
+- **Bojarski, M. et al., "End to End Learning for Self-Driving Cars"**, NVIDIA, 2016 · https://arxiv.org/abs/1604.07316
+  → `PilotNet` 원 논문. `scripts/train_bc.py`의 CNN이 이 구조를 경량화한 것.

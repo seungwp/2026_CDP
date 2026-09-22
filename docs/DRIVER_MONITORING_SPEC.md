@@ -198,6 +198,6 @@ closed  = closure >= 0.80                              # P80 정의
 - [PERCLOS: A Valid Psychophysiological Measure of Alertness (NHTSA/FHWA)](https://rosap.ntl.bts.gov/view/dot/113)
 - [Drowsiness Detection System Based on PERCLOS and Facial Physiological Signal (Sensors, 2022)](https://www.mdpi.com/1424-8220/22/14/5380)
 - [UN Regulation No. 157 (ALKS) 원문 — UNECE](https://unece.org/sites/default/files/2025-06/R157r1e.pdf)
-- [Euro NCAP — 2026 프로토콜 변경 발표](https://www.euroncap.com/press-media/euro-ncap-announces-2026-protocol-changes-to-tackle-modern-driving-risks/)
+- [Euro NCAP, "Safe Driving — Driver Engagement" Protocol, Version 1.1, October 2025, §1.3.3–1.3.5](https://cdn.euroncap.com/cars/assets/euro_ncap_protocol_safe_driving_driver_engagement_v11_a30e874152.pdf) — Microsleep(1~2초)·Sleep(≥3초)·Unresponsive(≥6초) 원문 대조 완료(2026-09-22)
 - [Seeing Machines — DDAW 시스템 해설](https://seeingmachines.com/understanding-driver-drowsiness-and-attention-warning-ddaw-systems/)
 - [Driver Drowsiness Detection Using MediaPipe (LearnOpenCV, 구현 참고)](https://learnopencv.com/driver-drowsiness-detection-using-mediapipe-in-python/)
