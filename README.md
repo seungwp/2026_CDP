@@ -94,11 +94,23 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 
 ## 🏗️ 전체 시스템 아키텍처
 
-![SafeCar 전체 시스템 아키텍처](./docs/images/architecture_overview.png)
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 80}, 'themeVariables': {'fontSize': '22px'}}}%%
+flowchart LR
+    CAM["카메라"] --> OBJ["장애물 인식"]
+    CAM --> DRIVE["주행 제어"]
+    LIDAR["라이다"] --> DRIVE
+    LIDAR --> GATE
+    OBJ --> GATE
+    DRIVE --> GATE
+    BIO["노트북 웹캠<br/>운전자 감지"] -.-> GATE
 
-*왼쪽부터: **센서**(카메라·라이다) → **인지**(Hailo 장애물 인식 / 차선·갓길선 인식) + **노트북**(웹캠 운전자 감지, 점선=UDP로 기계 경계 넘음) → **판단 제어**(모방학습 주행·규칙기반 주행·안전 게이트) → **차체**(모터 드라이버). [Figma에서 열기(편집 가능)](https://www.figma.com/board/xN7FEySXuTWZ2RmZrKFJ0q)*
+    GATE{"안전 게이트"} -->|"cmd_vel"| CAR["차체 · 모터<br/>워치독 0.5s"]
 
-> 모든 주행 명령은 **안전 게이트** 하나를 거쳐 바퀴로 나가고, 스택이 멈추면 **차체 드라이버**가 직접 멈춥니다. `bc_follower`(모방학습)와 `lane_follower`(규칙기반)는 항상 같이 떠 있지만 `driving_state`를 보고 **한쪽만 발행**하므로 서로 싸우지 않습니다 — 평소엔 `bc_follower`가 몰고, MRM 중엔 `lane_follower`가 이어받아 인지부를 흰선에서 갓길 노란선으로 전환시켜 그쪽으로 붙습니다. 장애물 판단은 Hailo + 라이다 퓨전입니다.
+    style GATE fill:#2b6cb0,stroke:#1a365d,color:#ffffff
+```
+
+> 평소엔 모방학습(`bc_follower`), 운전자 이상 시엔 규칙기반(`lane_follower`)이 **주행 제어**를 맡습니다. 둘 다 같이 떠 있지만 `driving_state`를 보고 한쪽만 `/cmd_vel_raw`를 발행해 서로 싸우지 않습니다. 장애물은 Hailo+라이다 퓨전으로 **주행 제어를 거치지 않고 안전 게이트가 즉시 정지**시킵니다.
 
 ### 판단 로직 (decision_maker)
 
