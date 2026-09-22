@@ -78,7 +78,8 @@ class VisionDetectorNode(Node):
             < self.scan_timeout
         )
         if not fresh:
-            cv2.putText(frame, '라이다: 없음', (10, 60),
+            # '없음'(반사 없음=비어있음)과 헷갈리지 않도록, 센서 자체가 끊긴 건 다른 단어로.
+            cv2.putText(frame, '라이다 끊김', (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
             return
 
@@ -87,7 +88,8 @@ class VisionDetectorNode(Node):
         def fmt(label, center_deg, half_deg):
             d = sector_min(s.ranges, s.angle_min, s.angle_increment,
                            center_deg, half_deg, s.range_min, s.range_max)
-            return f'{label} {d:.2f}m' if d is not None else f'{label} 없음'
+            # None = 그 방향에 반사가 없음 = 비어있음. _decide_mrm_mode의 표기와 통일.
+            return f'{label} {d:.2f}m' if d is not None else f'{label} 비어있음'
 
         lines = [
             fmt('전방', self.scan_front_deg, self.scan_front_half_deg),
