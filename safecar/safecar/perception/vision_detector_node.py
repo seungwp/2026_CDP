@@ -77,9 +77,10 @@ class VisionDetectorNode(Node):
             and (self.get_clock().now() - self.last_scan_time).nanoseconds * 1e-9
             < self.scan_timeout
         )
+        # 영어로 찍는다 — Pi의 OpenCV(4.x) Hershey 폰트는 한글을 '???'로 그린다.
         if not fresh:
-            # '없음'(반사 없음=비어있음)과 헷갈리지 않도록, 센서 자체가 끊긴 건 다른 단어로.
-            cv2.putText(frame, '라이다 끊김', (10, 60),
+            # 'clear'(반사 없음=비어있음)와 헷갈리지 않도록 센서 자체가 끊긴 건 따로 표기.
+            cv2.putText(frame, 'LIDAR: no signal', (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
             return
 
@@ -88,14 +89,13 @@ class VisionDetectorNode(Node):
         def fmt(label, center_deg, half_deg):
             d = sector_min(s.ranges, s.angle_min, s.angle_increment,
                            center_deg, half_deg, s.range_min, s.range_max)
-            # None = 그 방향에 반사가 없음 = 비어있음. _decide_mrm_mode의 표기와 통일.
-            # 숫자만 찍으면 "그게 거리인지 뭔지" 헷갈리므로 '물체'를 명시한다.
-            return f'{label} 물체 {d:.2f}m' if d is not None else f'{label} 비어있음'
+            # None = 그 방향에 반사가 없음 = 비어있음.
+            return f'{label}: object at {d:.2f}m' if d is not None else f'{label}: clear'
 
         lines = [
-            fmt('전방', self.scan_front_deg, self.scan_front_half_deg),
-            fmt('후방', self.scan_rear_deg, self.scan_sector_half_deg),
-            fmt('우측', self.scan_side_deg, self.scan_sector_half_deg),
+            fmt('FRONT', self.scan_front_deg, self.scan_front_half_deg),
+            fmt('REAR', self.scan_rear_deg, self.scan_sector_half_deg),
+            fmt('RIGHT', self.scan_side_deg, self.scan_sector_half_deg),
         ]
         for i, text in enumerate(lines):
             cv2.putText(frame, text, (10, 60 + i * 25),
