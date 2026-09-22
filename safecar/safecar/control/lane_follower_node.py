@@ -83,8 +83,8 @@ class LaneFollowerNode(Node):
         self.declare_parameter('mrm_max_duration', 6.0)
 
         # --- 라이다(/scan)로 차선변경 가능 여부 판단: 우측 차로 감지 영역 ---
-        # UN R79 §5.6.4.8.2 감지 영역(옆 차로를 따라 뒤로 뻗은 직사각형)을 1/10 축소.
-        # 기본값·근거는 scan_sectors.right_lane_zone 참고. 차체 치수는 실측해서 넣을 것.
+        # UN R79 §5.6.4.8.2 감지 영역(옆 차로를 따라 뒤로 뻗은 직사각형)을 축소.
+        # 기본값·근거(아반떼 CN7 대비 축소, 차체 실측 380×440 mm)는 scan_sectors 참고.
         self.declare_parameter('mrm_zone_side_m', ZONE_SIDE_M)
         self.declare_parameter('mrm_zone_rear_m', ZONE_REAR_M)
         self.declare_parameter('vehicle_half_width_m', VEHICLE_HALF_WIDTH_M)
