@@ -65,7 +65,7 @@ Pi 홈에 있는 스크립트 4개로 대부분의 작업이 됩니다(원본은
 ~/safecar_start.sh              # 차체+카메라+차선인식+게이트+영상 전부 켜기
 ~/safecar_drive.sh              # 주행 시작 (Ctrl+C로 정지)
 ~/safecar_drive.sh 0.15 0.7 0.4 # 속도 / 조향게인 / 헤딩게인 바꿔서
-~/safecar_drive.sh bc           # 모방학습 모델(~/bc_model.onnx)로 주행 — 학습 절차는 scripts/train_bc.py 주석
+~/safecar_drive.sh bc           # 모방학습 모델(~/bc_model.onnx)로 주행, 속도 0.3 — 학습 절차는 scripts/train_bc.py 주석
 ~/safecar_stop.sh               # 비상 정지 (제어만)
 ~/safecar_stop.sh all           # 카메라까지 전부 끔
 ```
@@ -238,6 +238,12 @@ python3 scripts/scan_check.py --selftest   # ROS 없이 로직만 검증
 인지: OpenCV HSV 노란 마스크 + Canny + HoughLinesP → `/perception/lane_offset`(-1~+1)
 제어: P 조향 + 오프셋 EMA (`lane_follower_node`), 갓길 대피는 `mrm_profile.MrmProfile`
 
+> ⚠️ **조향 게인·조향배율은 속도와 짝입니다.** 조향은 각속도(rad/s)이고 각속도 = 속도 ×
+> 곡률이라, 속도만 바꾸면 같은 조향값이 다른 궤적을 그립니다. 아래 게인(0.55/0.25)은
+> **0.15 m/s 기준**이고, 모방학습 모델은 **0.3 m/s 데이터**로 학습했습니다. 그래서
+> `safecar_drive.sh bc`는 기본 0.3으로 달리고, MRM 게인을 속도비만큼 키워서 넘깁니다
+> (0.3이면 1.1 / 0.5). 다른 속도로 달릴 땐 둘 다 같은 비율로 맞추세요.
+>
 > 2026-07-24에 시도했던 버드아이(원근변환) + Pure Pursuit은 트랙에서 흔들려 **되돌렸습니다**.
 > 그때 쓰던 `persp_src` / `lookahead_dist` / `k_curv` 같은 파라미터는 **지금 코드에 없습니다**.
 > 코드는 git 히스토리에 남아 있고, 쓰려면 카메라를 더 숙여 단 뒤 재캘리브레이션해야 합니다.
