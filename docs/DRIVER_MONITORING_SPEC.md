@@ -6,7 +6,8 @@
 
 > **구현 현황 (drowsy_v5, 2026-09-21)** — 이 문서는 설계 스펙이고, 실제 구현은 아래처럼 단순화했다.
 > - 구현: 개인 캘리브레이션(8초, EAR 80퍼센타일 기준 비율), 히스테리시스, PERCLOS(60초), 눈감김 분류(깜빡임/마이크로슬립/수면/무반응),
->   이벤트 채널 `MICROSLEEP(1s)` → `SLEEP(3s)` → `UNRESPONSIVE(13s)`, 졸음 채널(PERCLOS·마이크로슬립 빈도, 경고만), 얼굴 소실 누적, 경고음, CSV 로그.
+>   이벤트 채널 `MICROSLEEP(1s)` → `SLEEP(3s)` → `UNRESPONSIVE(6s)`, 졸음 채널(PERCLOS·마이크로슬립 빈도, 경고만), 얼굴 소실 누적, 경고음, CSV 로그.
+> (SLEEP=3s·UNRESPONSIVE=6s는 Euro NCAP Safe Driving Driver Engagement 프로토콜의 asleep/unresponsive 기준 그대로다.)
 > - **`bio_anomaly=True` 조건 = `SLEEP`(눈감김 또는 얼굴 소실 3초 이상)**, C 키로만 해제.
 > - 미구현: KSS 추정, head pitch(고개 떨굼 각도), 개안 3초 자동 해제(C 키 수동 해제로 대체).
 >   고개 떨굼은 얼굴 소실 경로로 일부 잡힌다.

@@ -64,9 +64,13 @@ OPEN_RATIO       = 0.70     # 뜸 복귀 (히스테리시스)
 
 # --- 이벤트 채널 (Euro NCAP 기준) ---
 BLINK_MAX        = 0.40     # 이하 = 정상 깜빡임
-MICROSLEEP_SEC   = 1.0      # 마이크로슬립
-SLEEP_SEC        = 3.0      # 수면 -> 차량 개입 요청
-UNRESPONSIVE_SEC = 13.0     # 무반응
+MICROSLEEP_SEC   = 1.0      # 마이크로슬립 (Euro NCAP: 1~2초)
+SLEEP_SEC        = 3.0      # 수면 -> 차량 개입 요청 (Euro NCAP: 연속 눈감김 >=3초 = asleep)
+# 무반응: Euro NCAP 실제 기준은 6초(눈감김/시선이탈 지속) 또는 경고 후 3초 내 미복귀.
+# 이전엔 13.0으로 되어 있었는데 근거 없는 값이었다 — 규격값(6.0)으로 맞춘다.
+# 어차피 SLEEP(3초)에서 이미 bio_anomaly=True가 확정되므로 Pi로 가는 신호엔 영향 없고,
+# 화면 표시 상태 이름(UNRESPONSIVE)이 언제 뜨는지만 바뀐다.
+UNRESPONSIVE_SEC = 6.0      # 무반응 (Euro NCAP: 눈감김/시선이탈 지속 >=6초)
 EVENT_DWELL_SEC  = 1.5      # 눈 뜬 뒤 경고 최소 유지
 
 # --- 졸음 채널 (누적 지표, 비긴급) ---
