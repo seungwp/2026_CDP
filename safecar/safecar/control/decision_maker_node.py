@@ -120,8 +120,16 @@ class DecisionMakerNode(Node):
             confirm_m=self.obstacle_confirm_m, emergency_m=self.emergency_stop_m,
             require_perception=self.require_perception, fuse_lidar=self.fuse_lidar)
         if reason != self.obstacle_reason:
+            # rclpy 로거는 "같은 호출 위치(파일:줄)"의 심각도가 호출마다 바뀌는 걸 허용하지
+            # 않는다 — 한 줄에서 warn/info를 골라 쓰면 두 번째로 다른 쪽이 불리는 순간
+            # ValueError('Logger severity cannot be changed between calls.')로 죽는다
+            # (실측: 장애물 유무가 바뀌면서 실제로 발생, decision_maker_node가 죽어
+            # /cmd_vel이 아예 안 나가고 차가 멈춰 있었다). 호출 지점을 분리해서 피한다.
             if reason:
-                (self.get_logger().warn if stop else self.get_logger().info)(f'장애물 판단: {reason}')
+                if stop:
+                    self.get_logger().warn(f'장애물 판단: {reason}')
+                else:
+                    self.get_logger().info(f'장애물 판단: {reason}')
             self.obstacle_reason = reason
         return stop
 
