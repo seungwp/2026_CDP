@@ -4,7 +4,8 @@
 두 가지를 한 번에 확인한다:
   1) 가림(occlusion) — 아무것도 없는 곳인데 특정 구간만 항상 짧으면 자기 차체/구조물에 가린 것.
   2) 각도 대응     — 차 옆이나 뒤에만 물체를 두고, 어느 구간의 거리가 줄어드는지 본다.
-                     그 각도가 `lane_follower_node`의 mrm_side_deg / mrm_rear_deg 값이다.
+                     ROS 표준(우측 -90°, 후방 ±180°)과 같아야 한다 — lane_follower의 우측 차로
+                     감지 영역이 이 표준을 가정한다(docs/RUNBOOK.md 3-4).
                      (YDLIDAR의 reversion 설정 때문에 ROS 표준과 다를 수 있어 실측이 필요하다.)
 
 colcon build 없이 그냥 실행한다 (패키지가 아니라 단독 스크립트):

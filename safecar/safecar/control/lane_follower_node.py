@@ -7,7 +7,10 @@ from sensor_msgs.msg import LaserScan
 
 from safecar.protocol import COMMAND_MRM_PULL_OVER, COMMAND_NORMAL
 from safecar.control.mrm_profile import MrmProfile
-from safecar.control.scan_sectors import sector_min
+from safecar.control.scan_sectors import (
+    ZONE_REAR_M, ZONE_SIDE_M, VEHICLE_FRONT_M, VEHICLE_HALF_WIDTH_M, VEHICLE_REAR_M,
+    right_lane_zone, zone_nearest,
+)
 
 
 class LaneFollowerNode(Node):
@@ -79,14 +82,14 @@ class LaneFollowerNode(Node):
         # 그 자리에서 정지 단계로 넘어간다(R157: 대피가 무한정 계속돼선 안 됨).
         self.declare_parameter('mrm_max_duration', 6.0)
 
-        # --- 라이다(/scan)로 갓길 대피 가능 여부 판단 ---
-        # 섹터 중심각은 라이다 장착 방향에 따라 달라진다. 차 우측/뒤에만 물체를 두고
-        # 어느 중심각에서 거리가 줄어드는지 확인한 뒤 맞출 것(README의 검증 절차 참고).
-        self.declare_parameter('mrm_rear_deg', 180.0)       # 후방 섹터 중심각
-        self.declare_parameter('mrm_side_deg', -90.0)       # 갓길(우측) 섹터 중심각
-        self.declare_parameter('mrm_sector_half_deg', 30.0)  # 섹터 반각
-        self.declare_parameter('mrm_rear_clear_m', 0.6)     # 후방이 이보다 비어야 대피 허용
-        self.declare_parameter('mrm_side_clear_m', 0.35)    # 갓길쪽이 이보다 비어야 대피 허용
+        # --- 라이다(/scan)로 차선변경 가능 여부 판단: 우측 차로 감지 영역 ---
+        # UN R79 §5.6.4.8.2 감지 영역(옆 차로를 따라 뒤로 뻗은 직사각형)을 1/10 축소.
+        # 기본값·근거는 scan_sectors.right_lane_zone 참고. 차체 치수는 실측해서 넣을 것.
+        self.declare_parameter('mrm_zone_side_m', ZONE_SIDE_M)
+        self.declare_parameter('mrm_zone_rear_m', ZONE_REAR_M)
+        self.declare_parameter('vehicle_half_width_m', VEHICLE_HALF_WIDTH_M)
+        self.declare_parameter('vehicle_front_m', VEHICLE_FRONT_M)
+        self.declare_parameter('vehicle_rear_m', VEHICLE_REAR_M)
         self.declare_parameter('mrm_scan_timeout', 1.0)     # /scan 신선도(초)
         # /scan을 못 받으면 갓길 대피를 포기하고 차로 내 정지로 간다(R157 기본 동작).
         # 라이다 없이 대피 동작만 튜닝할 때는 false로 끈다.
@@ -105,11 +108,13 @@ class LaneFollowerNode(Node):
             speed_ratio=self.get_parameter('mrm_speed_ratio').value,
             stop_duration=self.get_parameter('mrm_stop_duration').value,
         )
-        self.mrm_rear_deg = self.get_parameter('mrm_rear_deg').value
-        self.mrm_side_deg = self.get_parameter('mrm_side_deg').value
-        self.mrm_sector_half_deg = self.get_parameter('mrm_sector_half_deg').value
-        self.mrm_rear_clear_m = self.get_parameter('mrm_rear_clear_m').value
-        self.mrm_side_clear_m = self.get_parameter('mrm_side_clear_m').value
+        self.mrm_zone = right_lane_zone(
+            half_width=self.get_parameter('vehicle_half_width_m').value,
+            front=self.get_parameter('vehicle_front_m').value,
+            rear=self.get_parameter('vehicle_rear_m').value,
+            side=self.get_parameter('mrm_zone_side_m').value,
+            rear_len=self.get_parameter('mrm_zone_rear_m').value,
+        )
         self.mrm_scan_timeout = self.get_parameter('mrm_scan_timeout').value
         self.mrm_require_scan = self.get_parameter('mrm_require_scan').value
         self.mrm_align_offset = self.get_parameter('mrm_align_offset').value
@@ -184,6 +189,15 @@ class LaneFollowerNode(Node):
         특허 [0025]의 원칙(감지 범위·거리가 제한적이면 더 낮은 단계의 MRM을 선택)을 따라,
         후방/측방을 확인할 수 없으면 한 단계 낮은 모드로 내려간다.
 
+        차선변경 가능 판정은 UN R79의 RMF(운전자 무응답 시 차로 밖 안전정지) 조항을 따른다:
+        - §5.1.6.3.9.1  측방·후방 감지 능력이 있을 때만 차선변경 허용
+        - §5.1.6.3.9.2  위험 없이 못 가면 현재 차로 안에서 정지 → 자차로정차
+        - §5.6.4.8.2    감지 영역 = 옆 차로를 따라 뒤로 뻗은 직사각형 → right_lane_zone
+        - §5.6.4.8.4    센서가 가려지면(blindness) 차선변경 금지 → /scan 끊김이면 자차로정차
+        R79 §5.6.4.7은 뒤차 속도로 임계거리를 계산하지만, 라이다 한 장으로는 접근 속도를
+        모른다. 그래서 영역 안에 **무엇이든 있으면** 다가오는 차로 간주해 차선변경을
+        포기한다(규정보다 보수적).
+
         ponytail: 대피 시작 시점에 한 번만 판단한다(이동 중 뒤차가 새로 접근하는 건 못 본다).
         연속 감시로 올리려면 `_mrm_cmd`에서 매 주기 재평가하고 중단 조건을 넣어야 한다.
         """
@@ -191,7 +205,7 @@ class LaneFollowerNode(Node):
             self.get_logger().warn('MRM 모드: 자차로정차 (설정값)')
             return '자차로정차', 0.0
 
-        # ② 차로 변경(횡이동) 가능한가 (특허 211) — 후방/우측방 여유 확인
+        # ② 차로 변경(횡이동) 가능한가 (특허 211) — 우측 차로 감지 영역 확인 (R79)
         fresh = (
             self.last_scan is not None
             and self.last_scan_time is not None
@@ -206,28 +220,18 @@ class LaneFollowerNode(Node):
             return '우차로정차', self.mrm_lateral_bias
 
         s = self.last_scan
-        rear = sector_min(s.ranges, s.angle_min, s.angle_increment,
-                          self.mrm_rear_deg, self.mrm_sector_half_deg,
-                          s.range_min, s.range_max)
-        side = sector_min(s.ranges, s.angle_min, s.angle_increment,
-                          self.mrm_side_deg, self.mrm_sector_half_deg,
-                          s.range_min, s.range_max)
-
-        def fmt(d):
-            return '비어있음' if d is None else f'{d:.2f}m'
-
-        # None = 그 방향에 반사가 없음 = 비어 있음.
-        rear_ok = rear is None or rear > self.mrm_rear_clear_m
-        side_ok = side is None or side > self.mrm_side_clear_m
-        if not (rear_ok and side_ok):
+        hit = zone_nearest(s.ranges, s.angle_min, s.angle_increment, self.mrm_zone,
+                           s.range_min, s.range_max)
+        if hit is not None:
+            _, x, y = hit
+            where = f'{-x:.2f}m 뒤' if x < 0 else f'{x:.2f}m 앞'
             self.get_logger().warn(
-                f'MRM 모드: 자차로정차 (횡이동 불가 — 후방 {fmt(rear)}, 우측 {fmt(side)})')
+                f'MRM 모드: 자차로정차 (우측 차로 영역에 물체 — {where}, 우측 {-y:.2f}m)')
             return '자차로정차', 0.0
 
         # ③ 갓길 존재 판정 (특허 227) — 현재 판정 수단이 없어 항상 '없음'으로 본다.
         #    트랙에 갓길 표시를 붙이고 인지부가 알려주면 여기서 '갓길주차'로 올라간다.
-        self.get_logger().warn(
-            f'MRM 모드: 우차로정차 (후방 {fmt(rear)}, 우측 {fmt(side)})')
+        self.get_logger().warn('MRM 모드: 우차로정차 (우측 차로 영역 비어있음)')
         return '우차로정차', self.mrm_lateral_bias
 
     def _on_heading(self, msg):

@@ -40,6 +40,44 @@ def sector_min(ranges, angle_min, angle_increment,
     return best
 
 
+# --- 우측 차로 감지 영역 (차선변경 가능 여부) ---
+# UN R79 §5.6.4.8.2(ACSF Category C 감지 영역 그림)를 1/10로 축소했다. 규정의 감지
+# 영역은 부채꼴이 아니라 **옆 차로를 따라 뒤로 뻗은 직사각형**이다(자기 차로 뒤는
+# 포함하지 않음). 옆으로 S_sensor,side = 6 m, 뒤로 S_rear ≥ 55 m(§5.6.4.8.1).
+# 좌표는 라이다 기준 REP-103: x 전방+, y 좌측+ (우측은 y<0).
+ZONE_SIDE_M = 0.6    # 6 m × 1/10
+ZONE_REAR_M = 5.5    # 55 m × 1/10
+# 차체 치수(라이다 중심 기준). 공식 사양을 못 찾아 추정값 — 줄자로 실측해서 넣을 것.
+VEHICLE_HALF_WIDTH_M = 0.15   # 라이다 중심 ~ 차체 우측면
+VEHICLE_FRONT_M = 0.15        # 라이다 중심 ~ 차체 앞끝
+VEHICLE_REAR_M = 0.15         # 라이다 중심 ~ 차체 뒤끝
+
+
+def right_lane_zone(half_width=VEHICLE_HALF_WIDTH_M, front=VEHICLE_FRONT_M,
+                    rear=VEHICLE_REAR_M, side=ZONE_SIDE_M, rear_len=ZONE_REAR_M):
+    """우측 차로 감지 영역 → (x_min, x_max, y_min, y_max). 차체 옆면부터 옆으로 side,
+    차체 앞끝부터 뒤끝 뒤로 rear_len까지."""
+    return (-(rear + rear_len), front, -(half_width + side), -half_width)
+
+
+def zone_nearest(ranges, angle_min, angle_increment, box,
+                 range_min=0.0, range_max=float('inf')):
+    """직사각형 box=(x_min, x_max, y_min, y_max) 안에서 라이다에 가장 가까운 점.
+    → (거리, x, y), 영역 안에 점이 없으면 None. 무효값 처리는 sector_min과 같다."""
+    x_min, x_max, y_min, y_max = box
+    best = None
+    for i, r in enumerate(ranges):
+        if r is None or math.isnan(r) or math.isinf(r):
+            continue
+        if not (range_min <= r <= range_max):
+            continue
+        a = angle_min + i * angle_increment
+        x, y = r * math.cos(a), r * math.sin(a)
+        if x_min <= x <= x_max and y_min <= y <= y_max and (best is None or r < best[0]):
+            best = (r, x, y)
+    return best
+
+
 def is_clear(ranges, angle_min, angle_increment,
              center_deg, half_width_deg, clear_dist,
              range_min=0.0, range_max=float('inf'), unknown_is_clear=True):
@@ -89,6 +127,33 @@ def _self_check():
     assert is_clear(ranges, angle_min, inc, -90, 10, clear_dist=1.0) is True
     assert is_clear(ranges, angle_min, inc, 90, 10, clear_dist=1.0) is False
     assert is_clear([], angle_min, inc, 0, 10, clear_dist=1.0, unknown_is_clear=False) is False
+
+    # 우측 차로 영역: box = x -5.65~0.15, y -0.75~-0.15
+    box = right_lane_zone()
+    assert box == (-5.65, 0.15, -0.75, -0.15)
+
+    def scan_with(points):  # [(각도deg, 거리)] 외에는 전부 무반사
+        rs = [float('inf')] * n
+        for deg, r in points:
+            rs[idx(deg)] = r
+        return rs
+
+    def polar(x, y):
+        return math.degrees(math.atan2(y, x)), math.hypot(x, y)
+
+    # 우측 옆 0.4m → 영역 안
+    hit = zone_nearest(scan_with([polar(0.0, -0.4)]), angle_min, inc, box)
+    assert hit is not None and abs(hit[2] + 0.4) < 0.02
+    # 우후방 4m 뒤, 0.4m 옆 → 영역 안 (부채꼴 ±30° 두 개였으면 사이 틈에 빠지던 위치)
+    assert zone_nearest(scan_with([polar(-4.0, -0.4)]), angle_min, inc, box) is not None
+    # 자기 차로 바로 뒤 2m → 영역 밖 (R79 영역은 자기 차로 뒤를 포함하지 않음)
+    assert zone_nearest(scan_with([polar(-2.0, 0.0)]), angle_min, inc, box) is None
+    # 우측 1.25m (지난 실측: 인도 쪽 구조물) → 차로 폭 밖이라 영역 밖
+    assert zone_nearest(scan_with([polar(0.0, -1.25)]), angle_min, inc, box) is None
+    # 6m 뒤 → 영역 밖
+    assert zone_nearest(scan_with([polar(-6.0, -0.4)]), angle_min, inc, box) is None
+    # 좌측 → 영역 밖
+    assert zone_nearest(scan_with([polar(-1.0, 0.4)]), angle_min, inc, box) is None
 
     print("scan_sectors self-check OK")
 

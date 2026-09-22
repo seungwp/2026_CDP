@@ -44,7 +44,7 @@ class DecisionMakerNode(Node):
         # 라이다 퓨전. false면 예전처럼 Hailo 단독 판단.
         self.declare_parameter('fuse_lidar', True)
         # 전방 섹터 중심각/반각. 라이다 reversion 설정 때문에 0°가 실제 전방인지
-        # scan_check.py로 실측할 것 (mrm_side_deg 등과 같은 절차).
+        # scan_check.py로 실측할 것 (docs/RUNBOOK.md 3-4).
         self.declare_parameter('obstacle_front_deg', 0.0)
         self.declare_parameter('obstacle_front_half_deg', 20.0)
         self.declare_parameter('obstacle_confirm_m', 1.0)   # Hailo 감지를 인정하는 전방 거리

@@ -7,7 +7,10 @@ from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
 
 from safecar.perception.vision_detector import VisionDetector
-from safecar.control.scan_sectors import sector_min
+from safecar.control.scan_sectors import (
+    ZONE_REAR_M, ZONE_SIDE_M, VEHICLE_FRONT_M, VEHICLE_HALF_WIDTH_M, VEHICLE_REAR_M,
+    right_lane_zone, sector_min, zone_nearest,
+)
 
 
 class VisionDetectorNode(Node):
@@ -28,9 +31,10 @@ class VisionDetectorNode(Node):
     카메라 자체는 이 노드가 열지 않는다 — camera_ros(camera_node)가 열어서
     '/camera/image_raw'로 publish하고, 이 노드는 구독만 한다.
 
-    디버그 영상에는 라이다 전방/후방/우측 섹터 최소거리도 같이 찍는다(튜닝·시연용).
-    섹터 중심각 기본값은 decision_maker(전방)·lane_follower(후방/우측)와 맞춰뒀다 —
-    실제 판단은 각자 노드가 따로 하고, 여긴 화면에 보여주기만 한다.
+    디버그 영상에는 라이다 판정도 같이 찍는다(튜닝·시연용): 전방 섹터 최소거리
+    (decision_maker와 같은 섹터)와 우측 차로 감지 영역(lane_follower의 차선변경
+    판정과 같은 영역, UN R79 §5.6.4.8.2 기반). 실제 판단은 각자 노드가 따로 하고,
+    여긴 화면에 보여주기만 한다. 영역 파라미터 이름·기본값은 lane_follower와 같다.
     """
 
     def __init__(self):
@@ -44,13 +48,21 @@ class VisionDetectorNode(Node):
 
         self.declare_parameter('scan_front_deg', 0.0)
         self.declare_parameter('scan_front_half_deg', 20.0)
-        self.declare_parameter('scan_rear_deg', 180.0)
-        self.declare_parameter('scan_side_deg', -90.0)
-        self.declare_parameter('scan_sector_half_deg', 30.0)
         self.declare_parameter('scan_timeout', 1.0)
-        for name in ('scan_front_deg', 'scan_front_half_deg', 'scan_rear_deg',
-                     'scan_side_deg', 'scan_sector_half_deg', 'scan_timeout'):
+        for name in ('scan_front_deg', 'scan_front_half_deg', 'scan_timeout'):
             setattr(self, name, self.get_parameter(name).value)
+        self.declare_parameter('mrm_zone_side_m', ZONE_SIDE_M)
+        self.declare_parameter('mrm_zone_rear_m', ZONE_REAR_M)
+        self.declare_parameter('vehicle_half_width_m', VEHICLE_HALF_WIDTH_M)
+        self.declare_parameter('vehicle_front_m', VEHICLE_FRONT_M)
+        self.declare_parameter('vehicle_rear_m', VEHICLE_REAR_M)
+        self.zone = right_lane_zone(
+            half_width=self.get_parameter('vehicle_half_width_m').value,
+            front=self.get_parameter('vehicle_front_m').value,
+            rear=self.get_parameter('vehicle_rear_m').value,
+            side=self.get_parameter('mrm_zone_side_m').value,
+            rear_len=self.get_parameter('mrm_zone_rear_m').value,
+        )
 
         self.offset_pub = self.create_publisher(Float32, '/perception/lane_offset', 10)
         self.heading_pub = self.create_publisher(Float32, '/perception/lane_heading', 10)
@@ -85,18 +97,22 @@ class VisionDetectorNode(Node):
             return
 
         s = self.last_scan
+        # None = 그 방향에 반사가 없음 = 비어있음.
+        d = sector_min(s.ranges, s.angle_min, s.angle_increment,
+                       self.scan_front_deg, self.scan_front_half_deg,
+                       s.range_min, s.range_max)
+        front = f'FRONT: object at {d:.2f}m' if d is not None else 'FRONT: clear'
 
-        def fmt(label, center_deg, half_deg):
-            d = sector_min(s.ranges, s.angle_min, s.angle_increment,
-                           center_deg, half_deg, s.range_min, s.range_max)
-            # None = 그 방향에 반사가 없음 = 비어있음.
-            return f'{label}: object at {d:.2f}m' if d is not None else f'{label}: clear'
+        hit = zone_nearest(s.ranges, s.angle_min, s.angle_increment, self.zone,
+                           s.range_min, s.range_max)
+        if hit is None:
+            zone = 'RIGHT LANE: clear -> lane change OK'
+        else:
+            _, x, y = hit
+            where = f'{-x:.2f}m behind' if x < 0 else f'{x:.2f}m ahead'
+            zone = f'RIGHT LANE: object {where}, {-y:.2f}m right -> NO lane change'
 
-        lines = [
-            fmt('FRONT', self.scan_front_deg, self.scan_front_half_deg),
-            fmt('REAR', self.scan_rear_deg, self.scan_sector_half_deg),
-            fmt('RIGHT', self.scan_side_deg, self.scan_sector_half_deg),
-        ]
+        lines = [front, zone]
         for i, text in enumerate(lines):
             cv2.putText(frame, text, (10, 60 + i * 25),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)

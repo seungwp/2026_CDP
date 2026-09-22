@@ -118,7 +118,7 @@ flowchart LR
 flowchart LR
     A{"전방 장애물?<br/>Hailo + 라이다 퓨전<br/>(카메라 끊겨도 정지)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지"]
     A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
-    B -- 예 --> M["MRM_PULL_OVER<br/>라이다로 모드 결정<br/>(비었으면 우측 노란 갓길선 실시간 추종)"]
+    B -- 예 --> M["MRM_PULL_OVER<br/>우측 차로 감지 영역(UN R79) 확인<br/>(비었으면 우측 노란 갓길선 실시간 추종)"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
 ```
 
@@ -141,6 +141,14 @@ MRM(최소위험동작)과 운전자 상태 감시(DMS) 설계의 근거 문헌.
 - **KR 공개특허 10-2024-0073259** — 「자율주행을 위한 MRM(최소위험동작) 장치와 방법 및 MRM 모드 결정 방법」, 한국전자통신연구원(ETRI), 2024.05.27 공개 (출원 10-2022-0154383)
   → MRM 6모드 정의와 모드 결정 플로우(청구항 13~16). 본 프로젝트는 이 중 **비상정차·직진정차·자차로정차·우차로정차** 4개를 구현.
 - **UN Regulation No. 157 (ALKS)** — 최소위험조작의 규제상 정의, 정차 후 수동 입력 전 재출발 금지 · https://unece.org/sites/default/files/2025-06/R157r1e.pdf
+- **UN Regulation No. 79 (조향장치, 04 series Supplement 6)**, EU 관보 OJ L 2025/3 (2025.01.10) · http://data.europa.eu/eli/reg/2025/3/oj
+  → 원문 대조 완료. 운전자 무응답 시 **차로 밖(갓길)으로 차선변경해 정지**하는 RMF(Risk Mitigation Function)가 본 프로젝트의 우차로정차와 같은 기능이라 차선변경 판정을 이 조항에 맞췄다.
+  - §2.3.4.5 RMF 정의 / §5.1.6.3.9.1 측방·후방 감지 능력이 있을 때만 차선변경 허용 / §5.1.6.3.9.2 위험 없이 못 가면 현재 차로 안에서 정지 → **자차로정차**
+  - §5.6.4.8.2 감지 영역 그림: 옆 차로를 따라 뒤로 뻗은 직사각형, 측면 S_sensor,side = 6 m / §5.6.4.8.1 후방 감지거리 S_rear ≥ 55 m → 1/10 축소해 **폭 0.6 m × 길이 5.5 m** (`scan_sectors.right_lane_zone`)
+  - §5.6.4.8.4 센서가 가려지면(blindness) 차선변경 금지 → `/scan` 끊기면 자차로정차
+  - §5.6.4.7 임계거리 S_critical = (v_rear − v)·t_B + (v_rear − v)²/(2a) + v·t_G (a = 3 m/s², t_B = 0.4 s, t_G = 1 s) — 뒤차 속도가 필요한데 라이다 한 장으로는 알 수 없어, 영역 안에 **무엇이든 있으면** 차선변경을 포기하는 보수적 판정으로 대체
+- **ISO 17387:2008, Lane change decision aid systems (LCDAS)** · https://www.iso.org/standard/43654.html
+  → §2.4–2.5 인접 구역(adjacent zone)·후방 구역(rear zone)을 **차선 표시가 아니라 자차 기준 좌표로** 정의 — 감지 영역을 카메라 차선 인식과 무관하게 라이다 좌표로 잡은 근거. (구역 치수가 있는 §4.2는 유료 본문이라 미확인)
 - **EU 2021/1341 (DDAW)** — 졸음 경고 의무 기준(KSS 8 이상) · https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32021R1341
 - **Euro NCAP, "Safe Driving — Driver Engagement" Protocol, Version 1.1, October 2025**, §1.3.3–1.3.5 · https://cdn.euroncap.com/cars/assets/euro_ncap_protocol_safe_driving_driver_engagement_v11_a30e874152.pdf
   → 원문 대조 완료. Microsleep(1~2초)·Sleep(≥3초)·Unresponsive(≥6초) 판정 시간이 `driver_monitor/drowsy_v5.py`의 상수(`MICROSLEEP_SEC`/`SLEEP_SEC`/`UNRESPONSIVE_SEC`) 그대로다.
