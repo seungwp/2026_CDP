@@ -144,14 +144,12 @@ class LaneFollowerNode(Node):
         self.last_scan = msg
         self.last_scan_time = self.get_clock().now()
 
-    def _decide_mrm_mode(self, lane_fresh):
+    def _decide_mrm_mode(self):
         """대피 시작 시점에 수행할 MRM 모드를 정한다. → (모드명, 횡 바이어스)
 
         선행특허 KR 10-2024-0073259(ETRI, '자율주행을 위한 MRM 장치와 방법 및 MRM 모드
         결정 방법') 청구항 13~16의 결정 플로우를 이 차량의 센서 구성에 맞춰 구현한 것이다.
 
-            차로 유지 가능?  ─아니오─▶ 직진정차   (조향 끊고 감속만)
-                 │예
             차로 변경 가능?  ─아니오─▶ 자차로정차 (차로 안에서 정지)
                  │예
             갓길 존재?       ─아니오─▶ 우차로정차 (우측으로 붙어 정지)
@@ -160,7 +158,12 @@ class LaneFollowerNode(Node):
 
         특허가 정의한 6모드 중 이 차량이 수행 가능한 범위:
         - 비상정차   : 구현됨 — decision_maker의 EMERGENCY_BRAKE(전방 장애물 시 즉시 정지)
-        - 직진정차   : 구현됨 — 대피 중 차선 유실 시 `_mrm_cmd`가 자동 수행
+        - 직진정차   : 구현됨 — 대피 중 추종 대상(흰선/갓길선)을 잃으면 `_mrm_cmd`가
+          매 주기 자동 전환(조향 끊고 감속만). **결정 시점에는 더 이상 고르지 않는다** —
+          우차로정차는 어차피 이 순간부터 흰선이 아니라 갓길(노란)선으로 바꿔서 보므로,
+          "지금 흰선이 보이나"를 미리 확인하는 게 무의미하다(곧 안 볼 색이니까). 그래서
+          대피 시작 시점엔 라이다로만 판단하고, "아무것도 안 보임"은 실행 중 매 주기
+          `_mrm_cmd`가 알아서 직진정차와 같은 동작(조향 0)으로 떨어진다.
         - 자차로정차 : 구현됨 — bias=0
         - 우차로정차 : 구현됨 — bias>0 (현재 시연이 도달하는 모드)
         - 갓길주차   : 미구현 — 갓길 존재 판정 수단이 없다(트랙에 갓길 표시 필요)
@@ -172,11 +175,6 @@ class LaneFollowerNode(Node):
         ponytail: 대피 시작 시점에 한 번만 판단한다(이동 중 뒤차가 새로 접근하는 건 못 본다).
         연속 감시로 올리려면 `_mrm_cmd`에서 매 주기 재평가하고 중단 조건을 넣어야 한다.
         """
-        # ① 차로 유지 가능한가 (특허 203) — 차선이 안 보이면 횡방향 제어 자체가 불가능
-        if not lane_fresh:
-            self.get_logger().warn('MRM 모드: 직진정차 (차선 유지 불가)')
-            return '직진정차', 0.0
-
         if self.mrm_lateral_bias == 0.0:
             self.get_logger().warn('MRM 모드: 자차로정차 (설정값)')
             return '자차로정차', 0.0
@@ -228,12 +226,7 @@ class LaneFollowerNode(Node):
     def _on_state(self, msg):
         mrm = (msg.data == COMMAND_MRM_PULL_OVER)
         if mrm and self.mrm_start_time is None:
-            lane_fresh = (
-                self.last_offset_time is not None
-                and (self.get_clock().now() - self.last_offset_time).nanoseconds * 1e-9
-                < self.offset_timeout
-            )
-            self.mrm_mode, self.mrm.lateral_bias = self._decide_mrm_mode(lane_fresh)
+            self.mrm_mode, self.mrm.lateral_bias = self._decide_mrm_mode()
             self.mrm_start_time = self.get_clock().now()
             self.mrm_mode_pub.publish(String(data=self.mrm_mode))
             self.get_logger().warn(f'운전자 이상 — MRM 시작 ({self.mrm_mode})')
