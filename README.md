@@ -150,3 +150,14 @@ MRM(최소위험동작)과 운전자 상태 감시(DMS) 설계의 근거 문헌.
 
 - **Bojarski, M. et al., "End to End Learning for Self-Driving Cars"**, NVIDIA, 2016 · https://arxiv.org/abs/1604.07316
   → `PilotNet` 원 논문. `scripts/train_bc.py`의 CNN이 이 구조를 경량화한 것.
+
+### 차체 워치독(cmd_vel 타임아웃) — 근거 및 실사례
+
+`stella_md`의 0.5초 cmd_vel 워치독은 "액추에이터는 소프트웨어(상위 안전 게이트)에만 안전을 의존해서는 안 된다"는 원칙을 따른 것이다 — 데드맨 스위치(dead man's switch) 패턴.
+
+- **ISO 13849-1** — 기계류 제어시스템 안전 부품 표준. Fail-safe 동작·이중화 설계를 요구 · https://en.wikipedia.org/wiki/ISO_13849
+- **ISO 3691-4** — 무인운반차(AGV)의 안전 요구사항을 정의하는 규격
+- **iRobot Create3 공식 문서 디스커션** — 실제 판매되는 ROS 2 로봇의 `/cmd_vel` 타임아웃이 **0.5초**로 본 프로젝트와 동일 · https://github.com/iRobotEducation/create3_docs/discussions/516
+- **"stop my robot if /cmd_vel doesn't receive a message within a certain time period"** — ROS Answers, cmd_vel 워치독의 ROS 생태계 표준 구현 논의 · https://answers.ros.org/question/292512/
+- **"Dead man's switch explained: A must for safe automation"**, Standard Bots · https://standardbots.com/blog/dead-mans-switch
+- **"Safety for AGV/AMR" 백서**, MESCO Engineering, 2023 · https://mesco-engineering.com/wp-content/uploads/2023/06/mesco-whitepaper-design-package-safe-agv_230516.pdf
