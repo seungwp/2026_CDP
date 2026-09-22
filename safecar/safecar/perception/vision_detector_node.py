@@ -89,7 +89,8 @@ class VisionDetectorNode(Node):
             d = sector_min(s.ranges, s.angle_min, s.angle_increment,
                            center_deg, half_deg, s.range_min, s.range_max)
             # None = 그 방향에 반사가 없음 = 비어있음. _decide_mrm_mode의 표기와 통일.
-            return f'{label} {d:.2f}m' if d is not None else f'{label} 비어있음'
+            # 숫자만 찍으면 "그게 거리인지 뭔지" 헷갈리므로 '물체'를 명시한다.
+            return f'{label} 물체 {d:.2f}m' if d is not None else f'{label} 비어있음'
 
         lines = [
             fmt('전방', self.scan_front_deg, self.scan_front_half_deg),
