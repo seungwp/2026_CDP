@@ -39,16 +39,6 @@ class VisionDetector:
     # 두면 딱 그 첫 프레임에 "너무 멀어서 유실"로 처리돼 조향 신호 자체가 안 나간다
     # (2026-09-22 실측: 처음 검출 offset이 0.76이었음). 1.0(=클립 상한, 사실상 무제한)로 둔다.
     SHOULDER_MAX_ABS_OFFSET = 1.0
-    # 노란색 판정 기준(채도/밝기 하한). 기존 70/70은 주간 실측값인데, 2026-09-22 야간
-    # 트랙 스크린샷을 직접 샘플링해보니 같은 노란 테이프도 두 방향으로 이 범위를 벗어났다:
-    #   - 먼 쪽(어두움): 채도는 150~200으로 충분한데 밝기가 53~66 (V<70이라 전부 컷됨)
-    #   - 가까운 쪽(가로등/젖은 노면 반사로 뜸): 밝기는 118~191인데 채도가 8~68까지 떨어짐
-    #     (S<70이라 전부 컷됨) — 그래서 화면에 선이 뻔히 보여도 NO LANE이 떴다.
-    # 주간 트랙은 70/70을 그대로 쓰고, 갓길(우차로정차) 모드만 아래 값으로 낮춘다.
-    YELLOW_S_MIN = 70
-    YELLOW_V_MIN = 70
-    SHOULDER_YELLOW_S_MIN = 25   # 야간 실측 최저 채도(8)까진 아니어도 대부분 잡도록 여유
-    SHOULDER_YELLOW_V_MIN = 40   # 야간 실측 원거리 밝기(53) 구간을 살리면서 순수 아스팔트(<40)는 컷
     # 흰색 판정 기준. **직사광선 아래에서 제일 중요한 값이다** — 햇빛 받은 아스팔트가
     # V=200을 쉽게 넘어서 노면 전체가 차선으로 잡힌다(실측: ROI의 6%가 V≥200).
     # 흐린 날/실내로 조명이 바뀌면 다시 낮춰야 한다.
@@ -88,8 +78,6 @@ class VisionDetector:
         self.use_yellow = self.USE_YELLOW
         self.min_abs_slope = self.MIN_ABS_SLOPE
         self.max_abs_offset = self.MAX_ABS_OFFSET
-        self.yellow_s_min = self.YELLOW_S_MIN
-        self.yellow_v_min = self.YELLOW_V_MIN
         print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
 
     def set_shoulder_mode(self, active):
@@ -104,14 +92,10 @@ class VisionDetector:
             self.use_white, self.use_yellow = False, True
             self.min_abs_slope = self.SHOULDER_MIN_ABS_SLOPE
             self.max_abs_offset = self.SHOULDER_MAX_ABS_OFFSET
-            self.yellow_s_min = self.SHOULDER_YELLOW_S_MIN
-            self.yellow_v_min = self.SHOULDER_YELLOW_V_MIN
         else:
             self.use_white, self.use_yellow = self.USE_WHITE, self.USE_YELLOW
             self.min_abs_slope = self.MIN_ABS_SLOPE
             self.max_abs_offset = self.MAX_ABS_OFFSET
-            self.yellow_s_min = self.YELLOW_S_MIN
-            self.yellow_v_min = self.YELLOW_V_MIN
         self._last_center = None
         self._coast = 0
         self._last_heading = 0.0
@@ -129,8 +113,7 @@ class VisionDetector:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
         if self.use_yellow:
-            mask = cv2.inRange(hsv, np.array([18, self.yellow_s_min, self.yellow_v_min]),
-                               np.array([40, 255, 255]))
+            mask = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([40, 255, 255]))
         if self.use_white:
             mask_white = cv2.inRange(hsv, np.array([0, 0, self.WHITE_V_MIN]),
                                      np.array([180, self.WHITE_S_MAX, 255]))
