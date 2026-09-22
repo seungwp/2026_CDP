@@ -41,11 +41,12 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 
 - **문제의식** — 자율주행 중 ① 운전자의 갑작스러운 건강 이상, ② 전방 장애물, ③ 제어 스택 자체의 정지 같은 상황에서도 차량이 스스로 사고 없이 안전하게 대응해야 한다.
 - **핵심 아이디어** — NTREX STELLA 차체 위에 **인지(카메라·NPU) → 판단(제어) → 통신(센서)** 3계층 SafeCar 레이어를 추가하고, 실제 바퀴로 나가는 `/cmd_vel`을 **단일 안전 게이트**로 통제한다. 나아가 **스택이 멈춰도 동작하는 차체 드라이버 워치독**으로 안전을 이중화한다.
+- **주행은 두 방식을 상황에 따라 전환한다** — 평소엔 사람 조종 데이터로 학습한 **모방학습(behavior cloning) 모델**이 몰고, 운전자 이상이 감지되면 규칙기반 `lane_follower_node`가 조용히 이어받아 **갓길(노란 테이프) 실시간 인식**으로 붙여 정차시킨다. 두 노드가 같은 안전 게이트 상태를 보고 한쪽만 활성화되므로 서로 충돌하지 않는다.
 - **3가지 안전 시나리오**
-  - 🫀 **운전자 생체 이상** → 감속하며 우측 갓길로 이동 후 정차 (MRM 로직 구현)
-  - 🚧 **전방 장애물** → Hailo NPU로 감지해 정지(동작 확인). 단순 정지를 넘어 여유 공간으로 **회피 주행** 하도록 개발 중
+  - 🫀 **운전자 생체 이상** → 노트북 웹캠(모방학습 기반 얼굴 랜드마크)이 3초 이상 눈감김을 감지 → UDP로 신호 전달 → 감속하며 **실제 갓길선(노란 테이프)을 카메라로 보고** 우측으로 붙어 정차 (MRM 구현, R157 재출발 금지 래치 포함)
+  - 🚧 **전방 장애물** → Hailo NPU + 라이다 퓨전으로 감지해 즉시 정지(동작 확인). 옆 차로로 피해 계속 달리는 회피주행은 이번 범위 밖으로, 향후 과제로 남겨둔다
   - ⚙️ **스택 다운** → `/cmd_vel`이 0.5초 끊기면 **차체 드라이버가 스스로 모터 정지** (구현 완료)
-- **결과** — 실외 트랙에서 **OpenCV 기반 차선 추종 자율주행** 을 실제 소형 차체에서 end-to-end로 검증했고, **Hailo-8 NPU 장애물 감지 → 정지** 동작을 확인했다.
+- **결과** — 실외 트랙에서 **모방학습 기반 자율주행**과 **OpenCV 규칙기반 차선 추종**을 둘 다 실제 소형 차체에서 end-to-end로 검증했고, **Hailo-8 NPU + 라이다 퓨전 장애물 감지 → 정지** 동작을 확인했다.
 
 `/cmd_vel` 게이트는 **전방 장애물(정지) → 운전자 이상(갓길 대피) → 정상 주행** 순으로 가장 위급한 상황을 먼저 처리하고, 그 아래에 스택이 죽어도 동작하는 차체 드라이버 워치독을 이중으로 둔다.
 
@@ -68,6 +69,9 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
 ![Hailo-8](https://img.shields.io/badge/Hailo--8-NPU-FF6F00)
 ![YOLOv8](https://img.shields.io/badge/YOLOv8n-.hef-00A67E)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![ONNX](https://img.shields.io/badge/ONNX-005CED?logo=onnx&logoColor=white)
+![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?logo=google&logoColor=white)
 
 **하드웨어**
 
@@ -80,7 +84,9 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 | 미들웨어 | ROS 2 Jazzy, colcon |
 | 제어 · 인지 · 통신 노드 | Python |
 | 차체 드라이버 (모터 · IMU · LiDAR) | C++ |
-| 차선 인식 | OpenCV (HSV 마스크 + P/D 조향) |
+| 차선 인식 (규칙기반) | OpenCV (HSV 마스크 + Hough 변환 + P/헤딩 조향) |
+| 자율주행 (모방학습) | PyTorch(학습) → ONNX → OpenCV DNN(Pi 추론), PilotNet 경량판 |
+| 운전자 상태 감시 | MediaPipe FaceMesh (EAR 기반 눈감김 판정), 노트북에서 실행 |
 | 객체 인식 | Hailo-8 NPU, YOLOv8n (`.hef`) |
 | 센서 | Camera Module 3 (imx708/CSI), YDLIDAR X4 (360°, 0.12~10m) |
 
@@ -89,23 +95,25 @@ SafeCar는 일반 자율주행 스택 위에 **"안전 감독(supervisor) 레이
 ## 🏗️ 전체 시스템 아키텍처
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 110, 'rankSpacing': 95}, 'themeVariables': {'fontSize': '24px'}}}%%
+%%{init: {'flowchart': {'nodeSpacing': 100, 'rankSpacing': 90}, 'themeVariables': {'fontSize': '22px'}}}%%
 flowchart LR
-    CAM["📷 카메라"] --> LANE["차선 인식"]
+    CAM["📷 카메라"] --> BC["모방학습 모델<br/>(bc_follower, 평소 주행)"]
+    CAM --> LANE["차선/갓길선 인식<br/>(흰선 ↔ 노란선 전환)"]
     CAM --> OBJ["장애물 인식<br/>(Hailo NPU)"]
-    LANE --> DRIVE["차선 추종 주행"]
+    LANE --> RULE["차선 추종<br/>(lane_follower, MRM 전용)"]
 
-    DRIVE -->|주행 명령| GATE
+    BC -->|"NORMAL일 때만"| GATE
+    RULE -->|"MRM일 때만<br/>갓길선 정렬"| GATE
     OBJ -->|장애물| GATE
-    BIO["🩺 운전자 생체신호"] -->|이상 신호| GATE
+    BIO["🩺 노트북 웹캠<br/>운전자 상태(UDP)"] -->|이상 신호| GATE
 
-    LIDAR["📡 라이다"] -->|후방·측방 여유| DRIVE
+    LIDAR["📡 라이다"] -->|후방·측방 여유| RULE
     GATE["🧭 안전 게이트<br/>decision_maker"] -->|"/cmd_vel"| CAR["🚗 차체 · 모터<br/>워치독 0.5s"]
 
     style GATE fill:#2b6cb0,stroke:#1a365d,color:#ffffff
 ```
 
-> 모든 주행 명령은 **안전 게이트** 하나를 거쳐 바퀴로 나가고, 스택이 멈추면 **차체 드라이버**가 직접 멈춥니다.
+> 모든 주행 명령은 **안전 게이트** 하나를 거쳐 바퀴로 나가고, 스택이 멈추면 **차체 드라이버**가 직접 멈춥니다. `bc_follower`와 `lane_follower`는 항상 같이 떠 있지만 `driving_state`를 보고 **한쪽만 발행**하므로 서로 싸우지 않습니다 — MRM 중엔 인지부가 흰선 대신 갓길 노란선을 보도록 전환됩니다.
 
 ### 판단 로직 (decision_maker)
 
@@ -113,7 +121,7 @@ flowchart LR
 flowchart LR
     A{"전방 장애물?<br/>Hailo + 라이다 퓨전<br/>(카메라 끊겨도 정지)"} -- 예 --> E["EMERGENCY_BRAKE<br/>즉시 정지"]
     A -- 아니오 --> B{"운전자 이상?<br/>(bio_anomaly, 래치)"}
-    B -- 예 --> M["MRM_PULL_OVER<br/>라이다로 모드 결정 후 대피"]
+    B -- 예 --> M["MRM_PULL_OVER<br/>라이다로 모드 결정<br/>(비었으면 우측 노란 갓길선 실시간 추종)"]
     B -- 아니오 --> N["NORMAL<br/>/cmd_vel_raw 통과<br/>(timeout 시 정지)"]
 ```
 
