@@ -47,10 +47,12 @@ def sector_min(ranges, angle_min, angle_increment,
 # 좌표는 라이다 기준 REP-103: x 전방+, y 좌측+ (우측은 y<0).
 ZONE_SIDE_M = 0.6    # 6 m × 1/10
 ZONE_REAR_M = 5.5    # 55 m × 1/10
-# 차체 치수(라이다 중심 기준). 공식 사양을 못 찾아 추정값 — 줄자로 실측해서 넣을 것.
-VEHICLE_HALF_WIDTH_M = 0.15   # 라이다 중심 ~ 차체 우측면
-VEHICLE_FRONT_M = 0.15        # 라이다 중심 ~ 차체 앞끝
-VEHICLE_REAR_M = 0.15         # 라이다 중심 ~ 차체 뒤끝
+# 차체 치수(라이다 중심 기준). 2026-09-22 실측: 폭 380 mm × 길이 440 mm.
+# 라이다가 차체 정중앙에 있다고 가정해 절반씩 나눴다 — 앞뒤로 치우쳐 달려 있으면
+# FRONT/REAR를 라이다 중심에서 실제로 잰 값으로 고칠 것.
+VEHICLE_HALF_WIDTH_M = 0.19   # 라이다 중심 ~ 차체 우측면 (380/2)
+VEHICLE_FRONT_M = 0.22        # 라이다 중심 ~ 차체 앞끝 (440/2)
+VEHICLE_REAR_M = 0.22         # 라이다 중심 ~ 차체 뒤끝 (440/2)
 
 
 def right_lane_zone(half_width=VEHICLE_HALF_WIDTH_M, front=VEHICLE_FRONT_M,
@@ -128,9 +130,9 @@ def _self_check():
     assert is_clear(ranges, angle_min, inc, 90, 10, clear_dist=1.0) is False
     assert is_clear([], angle_min, inc, 0, 10, clear_dist=1.0, unknown_is_clear=False) is False
 
-    # 우측 차로 영역: box = x -5.65~0.15, y -0.75~-0.15
+    # 우측 차로 영역: box = x -5.72~0.22, y -0.79~-0.19
     box = right_lane_zone()
-    assert box == (-5.65, 0.15, -0.75, -0.15)
+    assert all(abs(a - b) < 1e-9 for a, b in zip(box, (-5.72, 0.22, -0.79, -0.19))), box
 
     def scan_with(points):  # [(각도deg, 거리)] 외에는 전부 무반사
         rs = [float('inf')] * n
