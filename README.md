@@ -155,7 +155,7 @@ MRM(최소위험동작)과 운전자 상태 감시(DMS) 설계의 근거 문헌.
 
 `stella_md`의 0.5초 cmd_vel 워치독은 "액추에이터는 소프트웨어(상위 안전 게이트)에만 안전을 의존해서는 안 된다"는 원칙을 따른 것이다 — 데드맨 스위치(dead man's switch) 패턴.
 
-- **ISO 13849-1** — 기계류 제어시스템 안전 부품 표준. Fail-safe 동작·이중화 설계를 요구 · https://en.wikipedia.org/wiki/ISO_13849
+- **ISO 13849-1:2023** — 「Safety of machinery — Safety-related parts of control systems — Part 1: General principles for design」. 기계류 제어시스템 안전 부품 표준, Fail-safe 동작·이중화 설계를 요구 · https://www.iso.org/standard/73481.html
 - **ISO 3691-4** — 무인운반차(AGV)의 안전 요구사항을 정의하는 규격
 - **iRobot Create3 공식 문서 디스커션** — 실제 판매되는 ROS 2 로봇의 `/cmd_vel` 타임아웃이 **0.5초**로 본 프로젝트와 동일 · https://github.com/iRobotEducation/create3_docs/discussions/516
 - **"stop my robot if /cmd_vel doesn't receive a message within a certain time period"** — ROS Answers, cmd_vel 워치독의 ROS 생태계 표준 구현 논의 · https://answers.ros.org/question/292512/
