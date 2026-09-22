@@ -22,7 +22,9 @@ if [ "$1" = "bc" ]; then
     # 평소엔 bc_follower가 몰고, 운전자 이상 신호가 오면 lane_follower가 조용히 이어받아
     # 노란 갓길선으로 붙는다(drive_normal:=false라 평소엔 아무것도 안 냄) — 둘 다 같은
     # driving_state를 보고 한쪽만 활성화되므로 /cmd_vel_raw를 두고 싸우지 않는다.
-    ros2 run safecar lane_follower_node --ros-args -p drive_normal:=false &
+    # cruise_speed를 BC와 맞춰준다 — 안 맞추면 MRM 전환 순간 lane_follower의 기본값(0.15)으로
+    # 속도가 튄다(감속 곡선이 시작되기도 전에 훅 느려지는 것처럼 보임).
+    ros2 run safecar lane_follower_node --ros-args -p drive_normal:=false -p cruise_speed:="$SPEED" &
     LF_PID=$!
     trap 'kill -9 "$LF_PID" 2>/dev/null' EXIT
     ros2 run safecar bc_follower_node --ros-args \
