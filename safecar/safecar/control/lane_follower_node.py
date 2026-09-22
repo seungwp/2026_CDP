@@ -70,6 +70,12 @@ class LaneFollowerNode(Node):
         # 멈춰버린다. 0.85면 이동 내내 0.1275 이상을 유지한다.
         self.declare_parameter('mrm_speed_ratio', 0.85)
         self.declare_parameter('mrm_stop_duration', 2.0)    # 붙은 뒤 정지까지(초)
+        # 우차로정차는 더 이상 정해진 시간에 맞춰 멈추지 않는다 — 갓길선에 실제로
+        # 붙었을 때(|오프셋| < 이 값) 멈추기 시작한다. 초기값 — 트랙에서 실측 후 조정.
+        self.declare_parameter('mrm_align_offset', 0.15)
+        # 갓길선을 계속 못 찾아 못 붙는 경우의 안전판. 이 시간이 지나면 못 붙었어도
+        # 그 자리에서 정지 단계로 넘어간다(R157: 대피가 무한정 계속돼선 안 됨).
+        self.declare_parameter('mrm_max_duration', 6.0)
 
         # --- 라이다(/scan)로 갓길 대피 가능 여부 판단 ---
         # 섹터 중심각은 라이다 장착 방향에 따라 달라진다. 차 우측/뒤에만 물체를 두고
@@ -104,6 +110,8 @@ class LaneFollowerNode(Node):
         self.mrm_side_clear_m = self.get_parameter('mrm_side_clear_m').value
         self.mrm_scan_timeout = self.get_parameter('mrm_scan_timeout').value
         self.mrm_require_scan = self.get_parameter('mrm_require_scan').value
+        self.mrm_align_offset = self.get_parameter('mrm_align_offset').value
+        self.mrm_max_duration = self.get_parameter('mrm_max_duration').value
 
         self.last_offset = 0.0
         self.last_offset_time = None
@@ -111,6 +119,8 @@ class LaneFollowerNode(Node):
         self.following = False
         self.mrm_start_time = None  # None이면 대피 중이 아님
         self.mrm_mode = None        # 이번 대피에서 선택된 MRM 모드명
+        self.mrm_arrived = False    # 우차로정차: 갓길선에 실제로 붙었는가
+        self.mrm_arrived_time = None
         self.last_scan = None
         self.last_scan_time = None
 
@@ -228,6 +238,8 @@ class LaneFollowerNode(Node):
         if mrm and self.mrm_start_time is None:
             self.mrm_mode, self.mrm.lateral_bias = self._decide_mrm_mode()
             self.mrm_start_time = self.get_clock().now()
+            self.mrm_arrived = False
+            self.mrm_arrived_time = None
             self.mrm_mode_pub.publish(String(data=self.mrm_mode))
             self.get_logger().warn(f'운전자 이상 — MRM 시작 ({self.mrm_mode})')
         # NORMAL일 때만 해제한다. EMERGENCY_BRAKE(장애물·인지 끊김)는 MRM 도중에도 잠깐 끼어들
@@ -276,19 +288,41 @@ class LaneFollowerNode(Node):
         갓길(노란 테이프)을 추적하도록 이미 전환해뒀다 — 그래서 여기서는 오프셋에 가짜
         bias를 더해 속이지 않는다. last_offset이 이제 '갓길선까지의 오프셋'이므로,
         평소 차선 추종과 똑같이 그 값을 0으로 만들면(= 갓길선에 정렬하면) 저절로
-        갓길로 붙는다. MrmProfile은 속도 감속 곡선(1.0→speed_ratio→0)에만 쓴다.
-        """
-        elapsed = (self.get_clock().now() - self.mrm_start_time).nanoseconds * 1e-9
-        speed_scale, _ = self.mrm.compute(elapsed)
+        갓길로 붙는다.
 
+        정지 시점: 자차로정차(bias=0)는 갈 곳이 없으니 예전처럼 정해진 시간에 맞춰
+        감속·정지한다(MrmProfile 그대로). 우차로정차는 **시간이 아니라 도착으로** 정지
+        시점을 정한다 — |오프셋| < mrm_align_offset이 되는 순간(=갓길선에 실제로 붙는
+        순간, 즉 차체 중앙이 갓길선에 오는 순간)부터 MrmProfile의 정지 구간(속도만
+        speed_ratio→0)을 시작한다. 그때까지는 speed_ratio로 계속 이동하며 계속
+        조향한다. 갓길선을 끝내 못 찾으면 mrm_max_duration에서 강제로 도착 처리해
+        그 자리에서 멈춘다(대피가 무한정 계속되지 않도록 하는 안전판).
+        """
+        now = self.get_clock().now()
+        elapsed = (now - self.mrm_start_time).nanoseconds * 1e-9
         cmd = Twist()
+
+        if self.mrm_lateral_bias == 0.0:
+            speed_scale, _ = self.mrm.compute(elapsed)
+        else:
+            if not self.mrm_arrived:
+                aligned = lane_fresh and abs(self.last_offset) < self.mrm_align_offset
+                if aligned or elapsed > self.mrm_max_duration:
+                    self.mrm_arrived = True
+                    self.mrm_arrived_time = now
+            if self.mrm_arrived:
+                stop_elapsed = (now - self.mrm_arrived_time).nanoseconds * 1e-9
+                speed_scale, _ = self.mrm.compute(self.mrm.transition_time + stop_elapsed)
+            else:
+                speed_scale = self.mrm.speed_ratio
+
         cmd.linear.x = self.cruise_speed * speed_scale
         if lane_fresh:
             cmd.angular.z = -(self.steer_gain * self.last_offset
                               + self.steer_head_gain * self.last_heading)
         else:
             # 추종 대상(흰 차선 또는 갓길선)을 잃은 상태. 마지막 오프셋을 계속 믿으면
-            # 그대로 돌아버리므로 조향을 끊고 직진으로 감속만 이어간다.
+            # 그대로 돌아버리므로 조향을 끊고 직진으로만 이어간다(속도는 위에서 결정됨).
             cmd.angular.z = 0.0
         return cmd
 
