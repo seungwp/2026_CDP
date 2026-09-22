@@ -1,10 +1,13 @@
+import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float32, String
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
 
 from safecar.perception.vision_detector import VisionDetector
+from safecar.control.scan_sectors import sector_min
 
 
 class VisionDetectorNode(Node):
@@ -24,6 +27,10 @@ class VisionDetectorNode(Node):
 
     카메라 자체는 이 노드가 열지 않는다 — camera_ros(camera_node)가 열어서
     '/camera/image_raw'로 publish하고, 이 노드는 구독만 한다.
+
+    디버그 영상에는 라이다 전방/후방/우측 섹터 최소거리도 같이 찍는다(튜닝·시연용).
+    섹터 중심각 기본값은 decision_maker(전방)·lane_follower(후방/우측)와 맞춰뒀다 —
+    실제 판단은 각자 노드가 따로 하고, 여긴 화면에 보여주기만 한다.
     """
 
     def __init__(self):
@@ -32,12 +39,25 @@ class VisionDetectorNode(Node):
         self.bridge = CvBridge()
         self.lane_visible = False
         self.shoulder_mode = False
+        self.last_scan = None
+        self.last_scan_time = None
+
+        self.declare_parameter('scan_front_deg', 0.0)
+        self.declare_parameter('scan_front_half_deg', 20.0)
+        self.declare_parameter('scan_rear_deg', 180.0)
+        self.declare_parameter('scan_side_deg', -90.0)
+        self.declare_parameter('scan_sector_half_deg', 30.0)
+        self.declare_parameter('scan_timeout', 1.0)
+        for name in ('scan_front_deg', 'scan_front_half_deg', 'scan_rear_deg',
+                     'scan_side_deg', 'scan_sector_half_deg', 'scan_timeout'):
+            setattr(self, name, self.get_parameter(name).value)
 
         self.offset_pub = self.create_publisher(Float32, '/perception/lane_offset', 10)
         self.heading_pub = self.create_publisher(Float32, '/perception/lane_heading', 10)
         self.debug_pub = self.create_publisher(Image, '/perception/lane_image', 10)
         self.create_subscription(Image, '/camera/image_raw', self._on_image, 10)
         self.create_subscription(String, '/control/mrm_mode', self._on_mrm_mode, 10)
+        self.create_subscription(LaserScan, '/scan', self._on_scan, qos_profile_sensor_data)
 
     def _on_mrm_mode(self, msg):
         active = (msg.data == '우차로정차')
@@ -47,6 +67,37 @@ class VisionDetectorNode(Node):
             self.get_logger().warn(
                 '갓길(노란선) 추적 시작' if active else '흰 차선 추적으로 복귀')
 
+    def _on_scan(self, msg):
+        self.last_scan = msg
+        self.last_scan_time = self.get_clock().now()
+
+    def _draw_scan_overlay(self, frame):
+        fresh = (
+            self.last_scan is not None and self.last_scan_time is not None
+            and (self.get_clock().now() - self.last_scan_time).nanoseconds * 1e-9
+            < self.scan_timeout
+        )
+        if not fresh:
+            cv2.putText(frame, '라이다: 없음', (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+            return
+
+        s = self.last_scan
+
+        def fmt(label, center_deg, half_deg):
+            d = sector_min(s.ranges, s.angle_min, s.angle_increment,
+                           center_deg, half_deg, s.range_min, s.range_max)
+            return f'{label} {d:.2f}m' if d is not None else f'{label} 없음'
+
+        lines = [
+            fmt('전방', self.scan_front_deg, self.scan_front_half_deg),
+            fmt('후방', self.scan_rear_deg, self.scan_sector_half_deg),
+            fmt('우측', self.scan_side_deg, self.scan_sector_half_deg),
+        ]
+        for i, text in enumerate(lines):
+            cv2.putText(frame, text, (10, 60 + i * 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+
     def _on_image(self, msg):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -55,6 +106,7 @@ class VisionDetectorNode(Node):
             return
 
         debug_frame, offset, heading = self.detector.process_frame(frame)
+        self._draw_scan_overlay(debug_frame)
 
         if offset is not None:
             self.offset_pub.publish(Float32(data=offset))
