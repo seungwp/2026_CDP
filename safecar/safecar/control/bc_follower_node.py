@@ -35,8 +35,12 @@ class BcFollowerNode(Node):
     def __init__(self):
         super().__init__('bc_follower_node')
         self.declare_parameter('model_path', os.path.expanduser('~/bc_model.onnx'))
-        # 녹화 때 조종한 속도와 같게. 0.12 미만은 정지 마찰 때문에 안 움직인다.
-        self.declare_parameter('cruise_speed', 0.15)
+        # **녹화 때 조종한 속도와 같아야 한다** — 모델은 조향을 각속도(rad/s)로 배우는데
+        # 각속도 = 속도 × 곡률이라, 다른 속도로 달리면 같은 조향값이 다른 궤적을 그린다.
+        # 0.3 = 현재 학습 데이터(dataset/20260922_131811)의 녹화 속도.
+        # 다른 속도로 달리려면 steer_scale에 속도비를 준다(예: 0.15면 0.5).
+        # 하한: 0.12 미만은 정지 마찰 때문에 안 움직인다.
+        self.declare_parameter('cruise_speed', 0.3)
         # 모델 출력에 곱하는 배율. 1.0 = 사람이 조종한 그대로. 흔들리면 ↓, 곡선에서 밀리면 ↑
         self.declare_parameter('steer_scale', 1.0)
         self.declare_parameter('max_steer', 1.0)        # rad/s 상한 (이상 출력 방어)
