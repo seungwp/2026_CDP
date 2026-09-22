@@ -27,6 +27,7 @@ import csv
 import glob
 import os
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -68,13 +69,19 @@ def load_sessions(dirs, min_speed):
         with open(path, newline='') as f:
             rows = [r for r in csv.DictReader(f) if abs(float(r['linear_x'])) >= min_speed]
         xs, ys = [], []
-        for r in rows:
+        t0 = time.time()
+        for i, r in enumerate(rows):
             img = cv2.imread(os.path.join(d, 'images', r['frame']))
             if img is None:
                 continue
             x = preprocess(img)
             xs.append(np.round((x + 0.5) * 255.0).astype(np.uint8))  # preprocess의 역변환(손실 없음)
             ys.append(float(r['angular_z']))
+            # 이미지 로딩이 느려서(수만 장이면 몇 분) 진행 중임을 보여준다 — 안 그러면
+            # "세션 N개 읽는 중"에서 멈춘 것처럼 보인다.
+            if (i + 1) % 2000 == 0 or i + 1 == len(rows):
+                rate = (i + 1) / max(time.time() - t0, 1e-6)
+                print(f'    {i + 1}/{len(rows)}장 읽음 ({rate:.0f}장/초)')
         n_val = max(1, len(xs) // 10)
         tx += xs[:-n_val]; ty += ys[:-n_val]
         vx += xs[-n_val:]; vy += ys[-n_val:]
@@ -102,6 +109,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('sessions', nargs='+', help='record_dataset.py 세션 폴더들 (glob 가능)')
     ap.add_argument('--epochs', type=int, default=20)
+    # 최고 기록(best val MAE) 이후 이만큼 지나도 안 좋아지면 멈춘다. 마지막에 저장되는
+    # 모델은 항상 best 시점 가중치라 품질엔 영향 없다 — 데이터 늘어날수록 매번 --epochs를
+    # 다 채우는 게 아까워서(재학습을 반복할 것이므로) 순수 시간 절약용.
+    ap.add_argument('--patience', type=int, default=6)
     ap.add_argument('--batch', type=int, default=64)
     ap.add_argument('--lr', type=float, default=1e-3)
     ap.add_argument('--min-speed', type=float, default=0.01)
@@ -127,7 +138,7 @@ def main():
     baseline = float(np.abs(vy - ty.mean()).mean())  # 항상 평균값만 내는 모델의 오차
     print(f'기준선(평균만 예측) 검증 MAE {baseline:.4f} - 이보다 충분히 낮아야 뭔가 배운 것\n')
 
-    best, best_state = float('inf'), None
+    best, best_state, no_improve = float('inf'), None, 0
     for ep in range(1, args.epochs + 1):
         model.train()
         perm = torch.randperm(len(tx_t), device=dev)
@@ -147,8 +158,13 @@ def main():
             mae = (pred - vy_t).abs().mean().item()
         mark = ''
         if mae < best:
-            best, best_state, mark = mae, {k: v.clone() for k, v in model.state_dict().items()}, ' *'
+            best, best_state, mark, no_improve = mae, {k: v.clone() for k, v in model.state_dict().items()}, ' *', 0
+        else:
+            no_improve += 1
         print(f'epoch {ep:3d}  train MSE {total / len(tx_t):.4f}  val MAE {mae:.4f}{mark}')
+        if no_improve >= args.patience:
+            print(f'{args.patience}에폭 동안 개선 없음 - 조기 종료 (best는 계속 유지됨)')
+            break
 
     model.load_state_dict(best_state)
     model.eval().cpu()
