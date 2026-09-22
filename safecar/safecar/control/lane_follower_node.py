@@ -72,9 +72,10 @@ class LaneFollowerNode(Node):
         # cruise 0.15에 ratio 0.6이면 이동 구간에서 0.09까지 떨어져 갓길에 닿기 전에
         # 멈춰버린다. 0.85면 이동 내내 0.1275 이상을 유지한다.
         self.declare_parameter('mrm_speed_ratio', 0.85)
-        # 붙은 뒤 정지까지(초). 갓길선에 도착한 뒤 이 시간에 걸쳐 속도를 0으로 내린다.
-        # 0.255 m/s에서 5초면 정지까지 약 0.6m 더 굴러가며 선을 따라 부드럽게 선다.
-        self.declare_parameter('mrm_stop_duration', 5.0)
+        # 정지 구간(초) — 두 모드가 같이 쓴다. 우차로정차는 갓길선에 도착한 시점부터,
+        # 자차로정차는 mrm_transition_time이 끝난 시점부터 이 시간에 걸쳐 0으로 내린다.
+        # 0.255 m/s에서 3초면 정지까지 약 0.4m 더 굴러간다.
+        self.declare_parameter('mrm_stop_duration', 3.0)
         # 우차로정차는 더 이상 정해진 시간에 맞춰 멈추지 않는다 — 갓길선에 실제로
         # 붙었을 때(|오프셋| < 이 값) 멈추기 시작한다. offset=0은 갓길선이 화면
         # 정중앙(디버그 영상의 파란 기준선)에 오는 상태 — "노란선이 파란선까지 오면
