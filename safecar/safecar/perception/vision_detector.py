@@ -28,6 +28,17 @@ class VisionDetector:
                           # 실내 광택 바닥에서는 조명 반사가 가짜 차선이 되므로 꺼야 한다.
     USE_YELLOW = False    # 노란 마스크. 현재 실외 트랙은 흰 차선뿐이라 끔.
                           # 실내 노란 테이프 트랙으로 돌아가면 True + USE_WHITE=False.
+    # 갓길(우측 노란선) 전용 기울기 문턱. 화면 중앙의 흰 차선은 기울기 1.5~2.5로 거의
+    # 세워져 보이지만, 카메라가 낮고 거의 수평이라 **옆으로 30~50cm 벗어난** 선은
+    # 원근 때문에 훨씬 눕게 보인다 — 2026-09-22 실측: 갓길 테이프 10프레임 전부
+    # 기울기 0.22~0.64 (MIN_ABS_SLOPE=0.8 기준으로는 전부 걸러져서 한 프레임도
+    # 감지가 안 됐다). 그 범위보다 낮게 잡아 여유를 둔다.
+    SHOULDER_MIN_ABS_SLOPE = 0.15
+    # MAX_ABS_OFFSET(흰선 유실 판정용 0.7)도 갓길선엔 안 맞는다 — 갓길선은 처음 전환되는
+    # 순간 "화면 가장자리에 있는 게 정상"이다(그래서 우측으로 붙어야 하는 것). 0.7로
+    # 두면 딱 그 첫 프레임에 "너무 멀어서 유실"로 처리돼 조향 신호 자체가 안 나간다
+    # (2026-09-22 실측: 처음 검출 offset이 0.76이었음). 1.0(=클립 상한, 사실상 무제한)로 둔다.
+    SHOULDER_MAX_ABS_OFFSET = 1.0
     # 흰색 판정 기준. **직사광선 아래에서 제일 중요한 값이다** — 햇빛 받은 아스팔트가
     # V=200을 쉽게 넘어서 노면 전체가 차선으로 잡힌다(실측: ROI의 6%가 V≥200).
     # 흐린 날/실내로 조명이 바뀌면 다시 낮춰야 한다.
@@ -65,19 +76,26 @@ class VisionDetector:
         # 클래스 상수(USE_WHITE/USE_YELLOW)는 "평소 설정값"으로 그대로 둔다.
         self.use_white = self.USE_WHITE
         self.use_yellow = self.USE_YELLOW
+        self.min_abs_slope = self.MIN_ABS_SLOPE
+        self.max_abs_offset = self.MAX_ABS_OFFSET
         print("[System] Vision: OpenCV 차선 인식 초기화 완료.")
 
     def set_shoulder_mode(self, active):
         """MRM 우차로정차 동안 흰 차선 대신 갓길(노란 테이프)을 보게 전환한다.
 
-        새 추적 로직을 만들지 않고 기존 단일선 추종을 그대로 재사용한다 — 색만 바꾼다.
+        새 추적 로직을 만들지 않고 기존 단일선 추종을 그대로 재사용한다 — 색과 기울기
+        문턱만 바꾼다(SHOULDER_MIN_ABS_SLOPE, 이유는 그 상수 주석 참고).
         전환 순간 추종 상태를 리셋한다. 안 그러면 MAX_JUMP_PX 게이트가 '색이 바뀐 새
         선'을 옛 선과 다른 위치라며 몇 프레임 동안 거부한다(불필요한 지연).
         """
         if active:
             self.use_white, self.use_yellow = False, True
+            self.min_abs_slope = self.SHOULDER_MIN_ABS_SLOPE
+            self.max_abs_offset = self.SHOULDER_MAX_ABS_OFFSET
         else:
             self.use_white, self.use_yellow = self.USE_WHITE, self.USE_YELLOW
+            self.min_abs_slope = self.MIN_ABS_SLOPE
+            self.max_abs_offset = self.MAX_ABS_OFFSET
         self._last_center = None
         self._coast = 0
         self._last_heading = 0.0
@@ -125,7 +143,7 @@ class VisionDetector:
                     x_at = float(x1)  # 수직선
                 else:
                     slope = dy / dx
-                    if abs(slope) < self.MIN_ABS_SLOPE:
+                    if abs(slope) < self.min_abs_slope:
                         continue
                     x_at = x1 + (y_eval - y1) / slope
                 # 근접 차선은 기준 행에서 화면 밖으로 나가는 게 정상(카메라가 낮아서).
@@ -196,7 +214,7 @@ class VisionDetector:
 
         offset = float(np.clip((center - width / 2) / (width / 2), -1.0, 1.0))
 
-        if abs(offset) > self.MAX_ABS_OFFSET:
+        if abs(offset) > self.max_abs_offset:
             cv2.putText(debug, f"LOST (off={offset:+.2f})", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
             cv2.circle(debug, (int(center), y_eval), 6, (0, 0, 255), 2)
