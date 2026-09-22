@@ -71,8 +71,10 @@ class LaneFollowerNode(Node):
         self.declare_parameter('mrm_speed_ratio', 0.85)
         self.declare_parameter('mrm_stop_duration', 2.0)    # 붙은 뒤 정지까지(초)
         # 우차로정차는 더 이상 정해진 시간에 맞춰 멈추지 않는다 — 갓길선에 실제로
-        # 붙었을 때(|오프셋| < 이 값) 멈추기 시작한다. 초기값 — 트랙에서 실측 후 조정.
-        self.declare_parameter('mrm_align_offset', 0.15)
+        # 붙었을 때(|오프셋| < 이 값) 멈추기 시작한다. offset=0은 갓길선이 화면
+        # 정중앙(디버그 영상의 파란 기준선)에 오는 상태 — "노란선이 파란선까지 오면
+        # 정지"가 정확히 이 조건이다. 0에 가까울수록 더 바짝 붙은 뒤에야 멈춘다.
+        self.declare_parameter('mrm_align_offset', 0.05)
         # 갓길선을 계속 못 찾아 못 붙는 경우의 안전판. 이 시간이 지나면 못 붙었어도
         # 그 자리에서 정지 단계로 넘어간다(R157: 대피가 무한정 계속돼선 안 됨).
         self.declare_parameter('mrm_max_duration', 6.0)
