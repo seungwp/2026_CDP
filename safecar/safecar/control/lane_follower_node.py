@@ -148,11 +148,11 @@ class LaneFollowerNode(Node):
         self.create_timer(0.05, self._on_timer)  # 20Hz
 
         # 파라미터가 의도대로 들어갔는지 트랙에서 바로 확인할 수 있게 한 줄로 찍는다.
-        x0, x1, y0, y1 = self.mrm_zone
+        # 시연 때 화면 녹화되는 창이라 짧게 유지할 것.
+        x0, _, y0, y1 = self.mrm_zone
         self.get_logger().info(
-            f'속도 {self.cruise_speed:.2f} / 조향 {self.steer_gain:.2f},{self.steer_head_gain:.2f} / '
-            f'우측 차로 영역 앞뒤 {x0:.2f}~{x1:.2f}m, 우측 {-y1:.2f}~{-y0:.2f}m / '
-            f'정렬 {self.mrm_align_offset:.2f}, 최대 {self.mrm_max_duration:.0f}초')
+            f'MRM 대기 · 우측차로 감지영역 뒤 {-x0:.1f}m 옆 {y1 - y0:.2f}m · '
+            f'정렬 {self.mrm_align_offset:.2f} · 최대 {self.mrm_max_duration:.0f}초')
 
     def _on_offset(self, msg):
         now = self.get_clock().now()

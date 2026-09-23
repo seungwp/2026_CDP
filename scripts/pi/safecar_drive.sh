@@ -45,11 +45,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# 이 창은 시연 때 화면 녹화 대상이다 — ROS 기본 로그 형식은 앞에 긴 epoch 시각이
+# 붙어 화면에서 읽기 어렵다. 노드 이름과 내용만 남긴다.
+export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{name}] {message}'
+export RCUTILS_COLORIZED_OUTPUT=1
+
 if [ "$1" = "bc" ]; then
     SPEED="${2:-0.3}"
     SCALE="${3:-1.0}"
-    echo "모방학습 주행 + MRM 갓길정차(노란선 인식) — 속도 $SPEED m/s, 조향배율 $SCALE   (Ctrl+C 로 정지)"
-    echo "멈춘 뒤 차가 계속 가면 다른 터미널에서: ~/safecar_stop.sh"
     # 평소엔 bc_follower가 몰고, 운전자 이상 신호가 오면 lane_follower가 조용히 이어받아
     # 노란 갓길선으로 붙는다(drive_normal:=false라 평소엔 아무것도 안 냄) — 둘 다 같은
     # driving_state를 보고 한쪽만 활성화되므로 /cmd_vel_raw를 두고 싸우지 않는다.
@@ -57,9 +60,16 @@ if [ "$1" = "bc" ]; then
     # 속도가 튄다(감속 곡선이 시작되기도 전에 훅 느려지는 것처럼 보임).
     # 조향 게인도 같이 키운다 — 게인 0.55/0.25는 0.15 m/s에서 맞춘 값이라, 속도만 올리면
     # 같은 조향 각속도로 곡률이 절반이 되어 갓길로 덜 붙는다(BC 조향배율과 같은 이유).
-    LF_GAIN=$(awk -v s="$SPEED" 'BEGIN{printf "%.3f", 0.55*s/0.15}')
-    LF_HEAD=$(awk -v s="$SPEED" 'BEGIN{printf "%.3f", 0.25*s/0.15}')
-    echo "MRM 조향게인 $LF_GAIN / 헤딩게인 $LF_HEAD (0.15 m/s 기준값 × 속도비)"
+    LF_GAIN=$(awk -v s="$SPEED" 'BEGIN{printf "%.2f", 0.55*s/0.15}')
+    LF_HEAD=$(awk -v s="$SPEED" 'BEGIN{printf "%.2f", 0.25*s/0.15}')
+    echo
+    echo "=================================================================="
+    echo "  SafeCar 자율주행      모방학습 모델 · ${SPEED} m/s"
+    echo "  운전자 이상 감지 시   갓길 정차(MRM)로 전환"
+    echo "=================================================================="
+    echo "  조향배율 ${SCALE} · MRM 게인 ${LF_GAIN}/${LF_HEAD} · 정지: Ctrl+C"
+    echo "------------------------------------------------------------------"
+    echo
     ros2 run safecar lane_follower_node --ros-args -p drive_normal:=false \
         -p cruise_speed:="$SPEED" -p steer_gain:="$LF_GAIN" -p steer_head_gain:="$LF_HEAD" &
     LF_PID=$!
