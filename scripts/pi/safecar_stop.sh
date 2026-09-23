@@ -20,9 +20,13 @@ echo "[stop] 주행 정지"
 
 if [ "$1" = "all" ]; then
     pkill -9 -f "ros2 lau""nch"      # 부모가 살아있으면 자식이 남는다
+    # v2x_bridge_node가 빠져 있어서 start할 때마다 하나씩 쌓였고(실측: 8개 동시 실행),
+    # 전부가 같은 USB 시리얼에 써서 ESP32가 받는 데이터가 뒤섞였다. launch에 새 노드를
+    # 추가하면 이 목록에도 반드시 넣을 것.
     for n in decision_mak""er_node vision_det""ector_node sensor_brid""ge_node \
-             hailo_ros2_detec""tion_node stella_m""d_node stella_ah""rs_node \
-             ydlidar""_node camera_no""de image_serv""er web_tele""op record_data""set; do
+             v2x_brid""ge_node hailo_ros2_detec""tion_node stella_m""d_node \
+             stella_ah""rs_node ydlidar""_node camera_no""de image_serv""er \
+             web_tele""op record_data""set record_dri""ve; do
         pkill -9 -f "$n"             # camera_node는 SIGTERM으로 안 죽고 CSI를 물고 있다
     done
     # Hailo 노드는 실행 중에 프로세스 이름을 'Hailo Detection App'으로 바꿔서 노드명으로는 안 잡힌다.
