@@ -21,19 +21,20 @@
 #
 # 먼저 ~/safecar_start.sh 로 센서·게이트를 띄워둬야 한다.
 #
-# 주행하는 동안 검출 화면(/perception/lane_image)을 자동으로 mp4로 남긴다.
-# 끄려면:  RECORD=0 ~/safecar_drive.sh bc
-# 원본 영상으로 남기려면:  REC_TOPIC=/camera/image_raw ~/safecar_drive.sh bc
+# 녹화는 기본으로 하지 않는다 — Pi에서 인코딩까지 하면 CPU가 포화돼(실측 부하 4.74)
+# 프레임이 빠지고 영상이 끊겼다. 시연 영상은 노트북에서 브라우저(:8080) 화면을
+# 녹화한다(Win+G). Pi 부하 0이고 검출 결과·라이다 표시가 그대로 들어간다.
+# 그래도 Pi에서 원본 화질로 남기고 싶을 때만:  RECORD=1 ~/safecar_drive.sh bc
 source /home/pi/safecar_env.sh
 
 REC_PY=/home/pi/record_drive.py
-if [ "${RECORD:-1}" = "1" ] && [ -f "$REC_PY" ]; then
+if [ "${RECORD:-0}" = "1" ] && [ -f "$REC_PY" ]; then
     REC_OUT="${REC_OUT:-/home/pi/drive_$(date +%Y%m%d_%H%M%S).mp4}"
     # duration은 넉넉히 두고 Ctrl+C로 끝낸다(트랩이 저장까지 마친 뒤 종료).
     python3 "$REC_PY" --topic "${REC_TOPIC:-/perception/lane_image}" \
         --duration "${REC_SEC:-900}" --out "$REC_OUT" &
     REC_PID=$!
-    echo "녹화 시작 -> $REC_OUT   (끄려면 RECORD=0)"
+    echo "Pi 녹화 시작 -> $REC_OUT   (CPU 부하 주의. 끄려면 RECORD=0)"
 fi
 
 # 녹화 프로세스는 반드시 Ctrl+C(SIGINT)로 끝내야 mp4가 저장된다 — kill -9면 파일이 깨진다.
