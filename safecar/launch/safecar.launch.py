@@ -37,6 +37,13 @@ def generate_launch_description():
             'lane_follow', default_value='false',
             description='true면 차선 추종(lane_follower) 실행 = 실제로 주행한다'),
 
+        # V2V 경고 방송용 차량 ESP32(A) 포트. udev 고정 이름을 쓴다 — YDLIDAR X4도 같은
+        # CP210x 칩이라 /dev/ttyUSB 번호는 꽂는 순서에 따라 바뀐다. (docs/V2X_SIGNAL_CONTRACT.md)
+        # ESP32가 없어도 v2x_bridge_node는 죽지 않고 재연결만 시도하므로 다른 노드에 영향 없음.
+        DeclareLaunchArgument(
+            'v2x_port', default_value='/dev/esp32_v2x',
+            description='차량 ESP32(A) 시리얼 포트'),
+
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(stella_bringup_launch),
         ),
@@ -85,7 +92,7 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration('lane_follow')),
         ),
 
-        # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지)
+        # SafeCar 안전 감독 레이어: 제어부 + 통신부(센서 브릿지, V2X 브릿지)
         Node(
             package='safecar',
             executable='decision_maker_node',
@@ -99,5 +106,14 @@ def generate_launch_description():
             output='screen',
             parameters=[{'source': LaunchConfiguration('bio_source'),
                          'anomaly_delay_sec': LaunchConfiguration('anomaly_delay_sec')}],
+        ),
+        # 주행 상태(/control/driving_state)와 속도(/odom)를 차량 ESP32(A)로 넘겨
+        # 뒤차 화면(ESP32-B + 넥션)에 V2V 경고로 방송한다.
+        Node(
+            package='safecar',
+            executable='v2x_bridge_node',
+            name='v2x_bridge_node',
+            output='screen',
+            parameters=[{'port': LaunchConfiguration('v2x_port')}],
         ),
     ])

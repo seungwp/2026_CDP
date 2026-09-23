@@ -29,6 +29,7 @@ setup(
             'lane_follower_node = safecar.control.lane_follower_node:main',
             'bc_follower_node = safecar.control.bc_follower_node:main',
             'sensor_bridge_node = safecar.comms.sensor_bridge_node:main',
+            'v2x_bridge_node = safecar.comms.v2x_bridge_node:main',
         ],
     },
 )
