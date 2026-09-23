@@ -12,6 +12,14 @@
 source /home/pi/safecar_env.sh
 mkdir -p /home/pi/runlog && cd /home/pi/runlog
 
+# 이전 실행이 강제 종료되면 /dev/shm에 FastDDS 찌꺼기가 남고, 쌓이면 새 노드가
+# 포트를 못 잡는다("Failed init_port fastrtps_port7000"). 남은 노드가 하나도 없을
+# 때만 지운다 — 돌고 있는데 지우면 그 노드들 통신이 끊긴다.
+if ! pgrep -f "safecar/lib|camera_node|ydlidar_node|Hailo Detection" > /dev/null; then
+    ros2 daemon stop > /dev/null 2>&1      # 데몬도 shm을 쓴다. 다음 ros2 명령에 자동 재시작
+    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_*
+fi
+
 start() {  # start <로그이름> <명령...>
     local log="$1"; shift
     setsid nohup "$@" > "$log" 2>&1 < /dev/null &
@@ -27,8 +35,18 @@ for t in /scan /camera/image_raw /perception/lane_offset /perception/obstacle_de
     printf "%-32s " "$t"
     timeout 6 ros2 topic hz "$t" 2>&1 | grep -m1 "average rate" || echo "(발행 없음)"
 done
+
+# 같은 노드가 둘 이상 뜨면 /cmd_vel이나 USB 시리얼을 두고 싸운다(실측: v2x 8개).
+DUP=$(ros2 node list 2>/dev/null | sort | uniq -d)
+if [ -n "$DUP" ]; then
+    echo "!! 중복 노드 — ~/safecar_stop.sh all 로 정리 후 다시 실행할 것:"
+    echo "$DUP"
+fi
 echo
-echo "영상:  http://raspberrypi.local:8080/   (차선 검출 결과)"
-echo "       http://raspberrypi.local:8081/   (원본)"
+# 핫스팟에서는 mDNS(raspberrypi.local)가 자주 안 먹는다 — 실제 IP도 같이 찍는다.
+IP=$(hostname -I | awk '{print $1}')
+echo "영상:  http://${IP:-raspberrypi.local}:8080/   (차선 검출 결과)"
+echo "       http://${IP:-raspberrypi.local}:8081/   (원본)"
+echo "노트북 졸음감지:  py -3.9 drowsy_v5.py --pi ${IP:-raspberrypi.local}"
 echo "주행 시작:  ~/safecar_drive.sh"
 echo "정지:       ~/safecar_stop.sh        (주행만)  /  ~/safecar_stop.sh all  (전부)"

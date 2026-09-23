@@ -147,6 +147,13 @@ class LaneFollowerNode(Node):
         self.mrm_mode_pub = self.create_publisher(String, '/control/mrm_mode', 10)
         self.create_timer(0.05, self._on_timer)  # 20Hz
 
+        # 파라미터가 의도대로 들어갔는지 트랙에서 바로 확인할 수 있게 한 줄로 찍는다.
+        x0, x1, y0, y1 = self.mrm_zone
+        self.get_logger().info(
+            f'속도 {self.cruise_speed:.2f} / 조향 {self.steer_gain:.2f},{self.steer_head_gain:.2f} / '
+            f'우측 차로 영역 앞뒤 {x0:.2f}~{x1:.2f}m, 우측 {-y1:.2f}~{-y0:.2f}m / '
+            f'정렬 {self.mrm_align_offset:.2f}, 최대 {self.mrm_max_duration:.0f}초')
+
     def _on_offset(self, msg):
         now = self.get_clock().now()
         stale = (
@@ -319,6 +326,17 @@ class LaneFollowerNode(Node):
                 if aligned or elapsed > self.mrm_max_duration:
                     self.mrm_arrived = True
                     self.mrm_arrived_time = now
+                    # 왜 멈추는지 남긴다 — 트랙에서 "붙어서 선 건지, 못 붙고 시간이 다 된
+                    # 건지"를 영상만 보고는 구분하기 어려웠다.
+                    if aligned:
+                        self.get_logger().warn(
+                            f'MRM 정지 시작: 갓길선 정렬 완료 (오프셋 {self.last_offset:+.2f}, '
+                            f'{elapsed:.1f}초 걸림)')
+                    else:
+                        self.get_logger().warn(
+                            f'MRM 정지 시작: {self.mrm_max_duration:.0f}초 초과 — 갓길선에 '
+                            f'못 붙었다 (마지막 오프셋 {self.last_offset:+.2f}, '
+                            f'차선 {"보임" if lane_fresh else "유실"})')
             if self.mrm_arrived:
                 stop_elapsed = (now - self.mrm_arrived_time).nanoseconds * 1e-9
                 speed_scale, _ = self.mrm.compute(self.mrm.transition_time + stop_elapsed)
