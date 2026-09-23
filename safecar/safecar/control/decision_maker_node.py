@@ -48,7 +48,13 @@ class DecisionMakerNode(Node):
         self.declare_parameter('obstacle_front_deg', 0.0)
         self.declare_parameter('obstacle_front_half_deg', 20.0)
         self.declare_parameter('obstacle_confirm_m', 1.0)   # Hailo 감지를 인정하는 전방 거리
-        self.declare_parameter('emergency_stop_m', 0.3)     # 종류 무관 즉시 정지 거리
+        # 종류 무관 즉시 정지 거리 — Hailo가 모르는 물체(삼각콘·박스 등)는 이 거리에서만
+        # 선다. 0.3은 0.15 m/s 기준이라 주행 속도를 0.3 m/s로 올린 뒤엔 너무 늦었다
+        # (실측: 삼각콘 앞에서 안 멈춤). 1.0으로 두면 Hailo 인식 여부와 무관하게
+        # 전방 1m 안의 모든 반사에 정지한다 = obstacle_confirm_m과 같은 거리.
+        # 곡선에서 벽·연석이 전방 섹터(±20°)에 들어오면 불필요하게 설 수 있으니,
+        # 트랙이 좁아 오정지가 잦으면 0.6 정도로 낮출 것.
+        self.declare_parameter('emergency_stop_m', 1.0)
         self.declare_parameter('scan_timeout', 1.0)
         for name in ('perception_timeout', 'require_perception', 'fuse_lidar',
                      'obstacle_front_deg', 'obstacle_front_half_deg',
