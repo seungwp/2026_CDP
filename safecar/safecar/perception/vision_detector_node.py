@@ -49,8 +49,13 @@ class VisionDetectorNode(Node):
         self.declare_parameter('scan_front_deg', 0.0)
         self.declare_parameter('scan_front_half_deg', 20.0)
         self.declare_parameter('scan_timeout', 1.0)
+        # 디버그 영상(/perception/lane_image) 발행 주기. 0 이하면 매 프레임.
+        self.declare_parameter('debug_image_hz', 10.0)
         for name in ('scan_front_deg', 'scan_front_half_deg', 'scan_timeout'):
             setattr(self, name, self.get_parameter(name).value)
+        hz = self.get_parameter('debug_image_hz').value
+        self.debug_period = 1.0 / hz if hz > 0 else 0.0
+        self.last_debug_time = None
         self.declare_parameter('mrm_zone_side_m', ZONE_SIDE_M)
         self.declare_parameter('mrm_zone_rear_m', ZONE_REAR_M)
         self.declare_parameter('vehicle_half_width_m', VEHICLE_HALF_WIDTH_M)
@@ -125,7 +130,6 @@ class VisionDetectorNode(Node):
             return
 
         debug_frame, offset, heading = self.detector.process_frame(frame)
-        self._draw_scan_overlay(debug_frame)
 
         if offset is not None:
             self.offset_pub.publish(Float32(data=offset))
@@ -134,6 +138,15 @@ class VisionDetectorNode(Node):
             self.lane_visible = offset is not None
             self.get_logger().info('차선 인식됨' if self.lane_visible else '차선 유실')
 
+        # 디버그 영상은 사람이 보는 용도라 카메라 속도로 낼 이유가 없다. 640x480 BGR을
+        # 매 프레임 메시지로 만들어 발행하면 초당 27MB이고, 실측에서 이 노드가 CPU를
+        # 120%까지 썼다(부하 4.86, 카메라가 11Hz로 떨어짐). 주기를 낮춰 제어에 CPU를 넘긴다.
+        now = self.get_clock().now()
+        if (self.last_debug_time is not None
+                and (now - self.last_debug_time).nanoseconds * 1e-9 < self.debug_period):
+            return
+        self.last_debug_time = now
+        self._draw_scan_overlay(debug_frame)
         debug_msg = self.bridge.cv2_to_imgmsg(debug_frame, encoding='bgr8')
         debug_msg.header = msg.header
         self.debug_pub.publish(debug_msg)
