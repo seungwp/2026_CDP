@@ -46,8 +46,9 @@ cleanup() {
 trap cleanup EXIT
 
 # 이 창은 시연 때 화면 녹화 대상이다 — ROS 기본 로그 형식은 앞에 긴 epoch 시각이
-# 붙어 화면에서 읽기 어렵다. 노드 이름과 내용만 남긴다.
-export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{name}] {message}'
+# 붙어 화면에서 읽기 어렵다. 문구 자체에 [대기][주행][판단] 같은 단계 표시를
+# 넣었으므로 내용만 남긴다. launch.log는 기존 형식 그대로다(디버깅용).
+export RCUTILS_CONSOLE_OUTPUT_FORMAT='{message}'
 export RCUTILS_COLORIZED_OUTPUT=1
 
 if [ "$1" = "bc" ]; then

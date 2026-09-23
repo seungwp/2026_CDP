@@ -151,7 +151,7 @@ class LaneFollowerNode(Node):
         # 시연 때 화면 녹화되는 창이라 짧게 유지할 것.
         x0, _, y0, y1 = self.mrm_zone
         self.get_logger().info(
-            f'MRM 대기 · 우측차로 감지영역 뒤 {-x0:.1f}m 옆 {y1 - y0:.2f}m · '
+            f'[대기] 갓길 정차 준비 · 우측차로 감지영역 뒤 {-x0:.1f}m 옆 {y1 - y0:.2f}m · '
             f'정렬 {self.mrm_align_offset:.2f} · 최대 {self.mrm_max_duration:.0f}초')
 
     def _on_offset(self, msg):
@@ -212,7 +212,7 @@ class LaneFollowerNode(Node):
         연속 감시로 올리려면 `_mrm_cmd`에서 매 주기 재평가하고 중단 조건을 넣어야 한다.
         """
         if self.mrm_lateral_bias == 0.0:
-            self.get_logger().warn('MRM 모드: 자차로정차 (설정값)')
+            self.get_logger().warn('[판단] 갓길 정차 비활성 설정 → 자차로정차(차로 내 정차)')
             return '자차로정차', 0.0
 
         # ② 차로 변경(횡이동) 가능한가 (특허 211) — 우측 차로 감지 영역 확인 (R79)
@@ -224,9 +224,9 @@ class LaneFollowerNode(Node):
         )
         if not fresh:
             if self.mrm_require_scan:
-                self.get_logger().warn('MRM 모드: 자차로정차 (/scan 없음 — 횡이동 안전 미확인)')
+                self.get_logger().warn('[판단] 라이다 신호 없음 → 자차로정차(차로 내 정차)')
                 return '자차로정차', 0.0
-            self.get_logger().warn('MRM 모드: 우차로정차 (/scan 확인 생략)')
+            self.get_logger().warn('[판단] 라이다 확인 생략 설정 → 우차로정차(갓길 정차)')
             return '우차로정차', self.mrm_lateral_bias
 
         s = self.last_scan
@@ -236,12 +236,12 @@ class LaneFollowerNode(Node):
             _, x, y = hit
             where = f'{-x:.2f}m 뒤' if x < 0 else f'{x:.2f}m 앞'
             self.get_logger().warn(
-                f'MRM 모드: 자차로정차 (우측 차로 영역에 물체 — {where}, 우측 {-y:.2f}m)')
+                f'[판단] 우측 차로에 물체({where}, 우측 {-y:.2f}m) → 자차로정차(차로 내 정차)')
             return '자차로정차', 0.0
 
         # ③ 갓길 존재 판정 (특허 227) — 현재 판정 수단이 없어 항상 '없음'으로 본다.
         #    트랙에 갓길 표시를 붙이고 인지부가 알려주면 여기서 '갓길주차'로 올라간다.
-        self.get_logger().warn('MRM 모드: 우차로정차 (우측 차로 영역 비어있음)')
+        self.get_logger().warn('[판단] 우측 차로 비어 있음 → 우차로정차(갓길 정차)')
         return '우차로정차', self.mrm_lateral_bias
 
     def _on_heading(self, msg):
@@ -257,7 +257,10 @@ class LaneFollowerNode(Node):
             self.mrm_arrived = False
             self.mrm_arrived_time = None
             self.mrm_mode_pub.publish(String(data=self.mrm_mode))
-            self.get_logger().warn(f'운전자 이상 — MRM 시작 ({self.mrm_mode})')
+            self.get_logger().warn(
+                '[제어] 최소위험동작 개시 — 갓길선(노란선) 추종 시작'
+                if self.mrm_mode == '우차로정차' else
+                '[제어] 최소위험동작 개시 — 현재 차로 유지하며 감속')
         # NORMAL일 때만 해제한다. EMERGENCY_BRAKE(장애물·인지 끊김)는 MRM 도중에도 잠깐 끼어들
         # 수 있는데, 그걸 해제로 보면 장애물이 사라진 뒤 프로파일이 0초부터 다시 시작돼
         # 정차했던 차가 재출발한다(R157 위반). 비상정지 동안에도 프로파일 시간은 계속 흐르므로
@@ -266,7 +269,7 @@ class LaneFollowerNode(Node):
             self.mrm_start_time = None
             self.mrm_mode = None
             self.mrm_mode_pub.publish(String(data=''))  # vision_detector: 흰 차선으로 복귀
-            self.get_logger().info('MRM 해제 — 정상 주행 복귀')
+            self.get_logger().info('[복귀] 정상 주행으로 전환')
 
     def _on_timer(self):
         fresh = (
@@ -284,9 +287,9 @@ class LaneFollowerNode(Node):
 
         if fresh != self.following:
             if fresh:
-                self.get_logger().info('차선 추종 시작')
+                self.get_logger().info('[주행] 차선 추종 시작')
             else:
-                self.get_logger().warn(f'차선 {self.offset_timeout:.1f}초 이상 유실 — 정지')
+                self.get_logger().warn(f'[경고] 차선 {self.offset_timeout:.1f}초 이상 유실 — 정지')
             self.following = fresh
 
         cmd = Twist()
@@ -330,12 +333,13 @@ class LaneFollowerNode(Node):
                     # 건지"를 영상만 보고는 구분하기 어려웠다.
                     if aligned:
                         self.get_logger().warn(
-                            f'MRM 정지 시작: 갓길선 정렬 완료 (오프셋 {self.last_offset:+.2f}, '
-                            f'{elapsed:.1f}초 걸림)')
+                            f'[정차] 갓길선 정렬 완료 ({elapsed:.1f}초) — '
+                            f'{self.mrm.stop_duration:.0f}초간 감속 정지 '
+                            f'(오프셋 {self.last_offset:+.2f})')
                     else:
                         self.get_logger().warn(
-                            f'MRM 정지 시작: {self.mrm_max_duration:.0f}초 초과 — 갓길선에 '
-                            f'못 붙었다 (마지막 오프셋 {self.last_offset:+.2f}, '
+                            f'[정차] {self.mrm_max_duration:.0f}초 내 갓길선 미정렬 — '
+                            f'현 위치에서 감속 정지 (오프셋 {self.last_offset:+.2f}, '
                             f'차선 {"보임" if lane_fresh else "유실"})')
             if self.mrm_arrived:
                 stop_elapsed = (now - self.mrm_arrived_time).nanoseconds * 1e-9
