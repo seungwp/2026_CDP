@@ -55,7 +55,7 @@ class BcFollowerNode(Node):
         if not os.path.exists(p['model_path']):
             raise SystemExit(f"모델 파일이 없다: {p['model_path']} (노트북에서 train_bc.py로 만든 뒤 scp)")
         self.net = cv2.dnn.readNetFromONNX(p['model_path'])
-        self.get_logger().info(f"[대기] 모방학습 모델 로드 완료 ({p['model_path']})")
+        self.get_logger().info(f"[대기] 주행 모델 적재 완료 ({p['model_path']})")
 
         self.bridge = CvBridge()
         self.steer = 0.0
@@ -82,8 +82,8 @@ class BcFollowerNode(Node):
         if active != self.active:
             self.active = active
             self.get_logger().info(
-                '[복귀] 정상 — 모방학습 주행 재개' if active else
-                '[감지] 운전자 이상 — 모방학습 주행 중단, 갓길 정차로 인계')
+                '[복귀] 운전자 상태 정상 — 자율주행 재개' if active else
+                '[감지] 운전자 무응답 확인 — 최소위험동작으로 제어권 이양')
 
     def _on_timer(self):
         if not self.active:
@@ -94,9 +94,9 @@ class BcFollowerNode(Node):
                  and (now - self.last_image_time).nanoseconds * 1e-9 < self.image_timeout)
         if fresh != self.driving:
             if fresh:
-                self.get_logger().info('[주행] 모방학습 모델이 운전 시작')
+                self.get_logger().info('[주행] 자율주행 시작 — 전방 영상 기반 조향')
             else:
-                self.get_logger().warn(f'[경고] 카메라 {self.image_timeout:.1f}초 이상 끊김 — 정지')
+                self.get_logger().warn(f'[경고] 전방 영상 {self.image_timeout:.1f}초 이상 두절 — 안전 정지')
             self.driving = fresh
 
         cmd = Twist()
