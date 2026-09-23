@@ -324,8 +324,18 @@ class LaneFollowerNode(Node):
         elapsed = (now - self.mrm_start_time).nanoseconds * 1e-9
         cmd = Twist()
 
-        if self.mrm_lateral_bias == 0.0:
+        # **파라미터가 아니라 이번에 결정된 모드로 갈라야 한다.** mrm_lateral_bias는
+        # "갓길 정차를 시도할지" 스위치(기본 0.5)라 자차로정차로 결정돼도 값이 그대로다.
+        # 예전엔 이걸 보고 갈라서, 자차로정차인데도 갓길 정렬 로직을 타고
+        # "갓길 정렬 완료"를 찍었다(흰 차선에 정렬한 것을 갓길로 착각).
+        if self.mrm_mode != '우차로정차':
             speed_scale, _ = self.mrm.compute(elapsed)
+            # 갓길 정차와 달리 중간 보고가 없어 화면이 몇 초간 비어 보인다.
+            # 정지 구간으로 넘어가는 순간을 한 번 남긴다.
+            if not self.mrm_arrived and elapsed >= self.mrm.transition_time:
+                self.mrm_arrived = True
+                self.get_logger().warn(
+                    f'[정차] 차로 내 감속 완료 — {self.mrm.stop_duration:.0f}초간 감속 후 정지')
         else:
             if not self.mrm_arrived:
                 aligned = lane_fresh and abs(self.last_offset) < self.mrm_align_offset
