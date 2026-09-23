@@ -37,7 +37,8 @@ for t in /scan /camera/image_raw /perception/lane_offset /perception/obstacle_de
 done
 
 # 같은 노드가 둘 이상 뜨면 /cmd_vel이나 USB 시리얼을 두고 싸운다(실측: v2x 8개).
-DUP=$(ros2 node list 2>/dev/null | sort | uniq -d)
+# image_server는 8080(검출)·8081(원본) 두 개를 일부러 띄우므로 제외한다.
+DUP=$(ros2 node list 2>/dev/null | grep -v '^/image_server$' | sort | uniq -d)
 if [ -n "$DUP" ]; then
     echo "!! 중복 노드 — ~/safecar_stop.sh all 로 정리 후 다시 실행할 것:"
     echo "$DUP"
