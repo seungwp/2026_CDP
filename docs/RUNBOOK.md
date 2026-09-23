@@ -323,7 +323,7 @@ R79 §5.6.4.7은 뒤차의 **속도**로 임계거리를 계산하지만, 라이
 | `mrm_require_scan` | True | `/scan` 없으면 자차로정차. 라이다 없이 튜닝할 땐 False |
 
 `vision_detector_node`도 같은 이름·기본값의 영역 파라미터를 받아 `:8080` 화면에
-`RIGHT LANE: clear -> lane change OK` / `RIGHT LANE: object ... -> NO lane change`로
+`RIGHT LANE: clear` / `RIGHT LANE: blocked` + 거리 두 줄(`behind`/`right`)로
 같은 판정을 표시합니다. 파라미터를 바꾸면 두 노드에 똑같이 넘기세요.
 
 **실행** (`lane_follower_node`)

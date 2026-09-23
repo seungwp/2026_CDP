@@ -101,18 +101,18 @@ class VisionDetectorNode(Node):
         d = sector_min(s.ranges, s.angle_min, s.angle_increment,
                        self.scan_front_deg, self.scan_front_half_deg,
                        s.range_min, s.range_max)
-        front = f'FRONT: object at {d:.2f}m' if d is not None else 'FRONT: clear'
+        front = f'FRONT: {d:.2f}m' if d is not None else 'FRONT: clear'
 
         hit = zone_nearest(s.ranges, s.angle_min, s.angle_increment, self.zone,
                            s.range_min, s.range_max)
+        # 한 줄로 쓰면 화면 폭을 넘어 잘린다(실측) — 짧게 끊어 세로로 쌓는다.
         if hit is None:
-            zone = 'RIGHT LANE: clear -> lane change OK'
+            lines = [front, 'RIGHT LANE: clear']
         else:
             _, x, y = hit
-            where = f'{-x:.2f}m behind' if x < 0 else f'{x:.2f}m ahead'
-            zone = f'RIGHT LANE: object {where}, {-y:.2f}m right -> NO lane change'
-
-        lines = [front, zone]
+            lines = [front, 'RIGHT LANE: blocked',
+                     f'  behind {-x:.2f}m' if x < 0 else f'  ahead {x:.2f}m',
+                     f'  right  {-y:.2f}m']
         for i, text in enumerate(lines):
             cv2.putText(frame, text, (10, 60 + i * 25),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
