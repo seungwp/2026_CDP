@@ -49,21 +49,21 @@ def judge_obstacle(hailo_detected, camera_fresh, hailo_fresh, scan_fresh, front_
     높이보다 높은 것을 쓰고, 필요하면 fuse_lidar=False로 Hailo 단독 판단으로 되돌린다.
     """
     if require_perception and not camera_fresh:
-        return True, '카메라 영상 끊김 (fail-safe)'
+        return True, '전방 영상 두절 — 안전 정지'
     if require_perception and not hailo_fresh:
-        return True, 'Hailo 응답 없음 (fail-safe)'
+        return True, '인식 장치 무응답 — 안전 정지'
 
     if fuse_lidar and scan_fresh:
         if front_min is not None and front_min < emergency_m:
-            return True, f'라이다 전방 {front_min:.2f}m 근접 (종류 무관 정지)'
+            return True, f'전방 {front_min:.2f}m 물체 감지 — 비상 정지'
         if hailo_detected:
             if front_min is not None and front_min < confirm_m:
-                return True, f'Hailo 감지 + 라이다 전방 {front_min:.2f}m 확인'
-            return False, f'Hailo 감지했으나 전방 {confirm_m:.1f}m 안이 비어 있음 (먼 물체, 무시)'
+                return True, f'전방 {front_min:.2f}m 장애물 확인(객체 인식 + 거리) — 비상 정지'
+            return False, f'객체 인식됐으나 전방 {confirm_m:.1f}m 이내 비어 있음 — 주행 유지'
         return False, ''
 
     if hailo_detected:
-        return True, 'Hailo 감지 (라이다 없음, 단독 판단)'
+        return True, '객체 인식 — 비상 정지 (거리 확인 불가)'
     return False, ''
 
 

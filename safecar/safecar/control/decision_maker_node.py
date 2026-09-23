@@ -133,9 +133,9 @@ class DecisionMakerNode(Node):
             # /cmd_vel이 아예 안 나가고 차가 멈춰 있었다). 호출 지점을 분리해서 피한다.
             if reason:
                 if stop:
-                    self.get_logger().warn(f'장애물 판단: {reason}')
+                    self.get_logger().warn(f'[감지] {reason}')
                 else:
-                    self.get_logger().info(f'장애물 판단: {reason}')
+                    self.get_logger().info(f'[판단] {reason}')
             self.obstacle_reason = reason
         return stop
 
@@ -151,7 +151,7 @@ class DecisionMakerNode(Node):
         self.state_pub.publish(state_msg)
 
         if command != self.last_command:
-            self.get_logger().info(f'주행 상태 변경: {command}')
+            self.get_logger().info(f'[상태] {command}')
             self.last_command = command
 
         if command == COMMAND_NORMAL:

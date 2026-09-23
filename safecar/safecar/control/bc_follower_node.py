@@ -10,7 +10,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
 from safecar.control.bc_model import preprocess
-from safecar.protocol import COMMAND_NORMAL
+from safecar.protocol import COMMAND_EMERGENCY_BRAKE, COMMAND_MRM_PULL_OVER, COMMAND_NORMAL
 
 
 class BcFollowerNode(Node):
@@ -81,9 +81,14 @@ class BcFollowerNode(Node):
         active = (msg.data == COMMAND_NORMAL)
         if active != self.active:
             self.active = active
-            self.get_logger().info(
-                '[복귀] 운전자 상태 정상 — 자율주행 재개' if active else
-                '[감지] 운전자 무응답 확인 — 최소위험동작으로 제어권 이양')
+            if active:
+                self.get_logger().info('[복귀] 전방 안전 확인 — 자율주행 재개')
+            elif msg.data == COMMAND_EMERGENCY_BRAKE:
+                self.get_logger().warn('[감지] 전방 물체 감지 — 비상 정지, 주행 제어 중단')
+            elif msg.data == COMMAND_MRM_PULL_OVER:
+                self.get_logger().warn('[감지] 운전자 무응답 확인 — 최소위험동작으로 제어권 이양')
+            else:
+                self.get_logger().warn(f'[감지] 주행 중단 ({msg.data})')
 
     def _on_timer(self):
         if not self.active:
